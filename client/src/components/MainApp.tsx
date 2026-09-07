@@ -6,6 +6,7 @@ import {
   type AppSection,
   type BrokerDb,
   type Cliente,
+  type EstagioFunilCliente,
   type FunilVisita,
   type Imovel,
   type TipoImovel,
@@ -52,6 +53,23 @@ type Props = {
   profile: BrokerProfile;
   userEmail: string;
 };
+
+const ETAPA_LEAD_POR_VISITA: Record<FunilVisita, EstagioFunilCliente> = {
+  agendada: 'visita',
+  realizada: 'realizada',
+  proposta: 'proposta',
+  fechado: 'fechado',
+  cancelada: 'cancelada',
+};
+
+const ABAS_AGENDA: { value: 'todas' | FunilVisita; label: string }[] = [
+  { value: 'todas', label: 'Todas' },
+  { value: 'agendada', label: 'Agendadas' },
+  { value: 'realizada', label: 'Realizadas' },
+  { value: 'proposta', label: 'Propostas' },
+  { value: 'fechado', label: 'Fechadas' },
+  { value: 'cancelada', label: 'Canceladas' },
+];
 
 /** Para ordenar/filtrar; leads antigos sem campo usam data inferida do `id` (timestamp) ou 1970-01-01. */
 function dataCadastroEfetiva(c: Cliente): string {
@@ -169,6 +187,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
   const [vImovelId, setVImovelId] = useState<number | undefined>(undefined);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [agendaBusca, setAgendaBusca] = useState('');
+  const [agendaEtapa, setAgendaEtapa] = useState<'todas' | FunilVisita>('todas');
   const [leadsBusca, setLeadsBusca] = useState('');
   const [leadsCadastroDe, setLeadsCadastroDe] = useState('');
   const [leadsCadastroAte, setLeadsCadastroAte] = useState('');
@@ -498,6 +517,26 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
     effectiveOwnerUserId,
     setDb,
   ]);
+
+  const atualizarEtapaVisita = useCallback(
+    (visita: Visita, etapa: FunilVisita) => {
+      setDb((d) => ({
+        ...d,
+        visitas: d.visitas.map((v) =>
+          v.id === visita.id ? { ...v, funilEstado: etapa } : v
+        ),
+        clientes:
+          visita.clienteId == null
+            ? d.clientes
+            : d.clientes.map((c) =>
+                c.id === visita.clienteId
+                  ? { ...c, estagioFunil: ETAPA_LEAD_POR_VISITA[etapa] }
+                  : c
+              ),
+      }));
+    },
+    [setDb]
+  );
 
   const openNovoCliente = useCallback(() => {
     setEditClienteId(null);
@@ -929,8 +968,9 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
 
   const visitasFiltradas = useMemo(() => {
     const t = agendaBusca.trim().toLowerCase();
-    if (!t) return sortedVisitas;
     return sortedVisitas.filter((v) => {
+      if (agendaEtapa !== 'todas' && (v.funilEstado ?? 'agendada') !== agendaEtapa) return false;
+      if (!t) return true;
       const im = v.imovelId != null ? db.imoveis.find((i) => i.id === v.imovelId) : undefined;
       const blob = [
         v.cliente,
@@ -947,7 +987,20 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
         .toLowerCase();
       return blob.includes(t);
     });
-  }, [sortedVisitas, agendaBusca, db.imoveis]);
+  }, [sortedVisitas, agendaBusca, agendaEtapa, db.imoveis]);
+
+  const contagemEtapasAgenda = useMemo(() => {
+    const counts: Record<'todas' | FunilVisita, number> = {
+      todas: sortedVisitas.length,
+      agendada: 0,
+      realizada: 0,
+      proposta: 0,
+      fechado: 0,
+      cancelada: 0,
+    };
+    for (const visita of sortedVisitas) counts[visita.funilEstado ?? 'agendada'] += 1;
+    return counts;
+  }, [sortedVisitas]);
 
   const clientesFiltrados = useMemo(() => {
     const t = leadsBusca.trim().toLowerCase();
@@ -1307,9 +1360,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                   <span className="text-brand-gold not-italic">Agenda</span>
                 </h2>
                 <p className="text-sm text-gray-600 dark:text-neutral-400 mt-2 max-w-md leading-relaxed">
-                  Veja as visitas por ordem. Use a pesquisa para filtrar por nome do lead ou local. Depois de a visita
-                  acontecer, edite o cartão e marque como <strong className="text-hz-ink dark:text-white">Realizada</strong>{' '}
-                  para acompanhar no Pós-visita.
+                  Filtre por etapa e altere o andamento diretamente no cartão, sem precisar abrir a edição.
                 </p>
               </div>
               <div className="flex flex-col sm:flex-row sm:items-center items-stretch gap-2 shrink-0">
@@ -1340,6 +1391,32 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                 </button>
               </div>
             </div>
+            <div
+              className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1"
+              role="tablist"
+              aria-label="Etapas das visitas"
+            >
+              {ABAS_AGENDA.map((aba) => {
+                const ativa = agendaEtapa === aba.value;
+                return (
+                  <button
+                    key={aba.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={ativa}
+                    onClick={() => setAgendaEtapa(aba.value)}
+                    className={
+                      'shrink-0 min-h-[42px] rounded-xl px-3.5 text-xs font-black transition-colors ' +
+                      (ativa
+                        ? 'bg-brand-dark text-brand-gold dark:bg-brand-gold dark:text-neutral-950'
+                        : 'bg-white dark:bg-neutral-900 text-gray-500 dark:text-neutral-300 border border-gray-200 dark:border-neutral-700')
+                    }
+                  >
+                    {aba.label} <span className="opacity-60">{contagemEtapasAgenda[aba.value]}</span>
+                  </button>
+                );
+              })}
+            </div>
             <div>
               <label className="block text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-neutral-400 mb-1.5 ml-0.5" htmlFor="agenda-busca">
                 Pesquisar na agenda
@@ -1357,11 +1434,13 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
               {visitasFiltradas.length === 0
                 ? agendaBusca.trim()
                   ? 'Nenhuma visita corresponde à pesquisa.'
-                  : 'Nenhuma visita na lista.'
+                  : agendaEtapa === 'todas'
+                    ? 'Nenhuma visita na lista.'
+                    : `Nenhuma visita na etapa ${ABAS_AGENDA.find((aba) => aba.value === agendaEtapa)?.label.toLowerCase()}.`
                 : `${visitasFiltradas.length} visita${visitasFiltradas.length === 1 ? '' : 's'} na lista.`}
             </p>
             <div className="space-y-4">
-              {visitasFiltradas.length === 0 && !agendaBusca.trim() ? (
+              {visitasFiltradas.length === 0 && !agendaBusca.trim() && agendaEtapa === 'todas' ? (
                 <p className="text-center text-sm text-gray-500 dark:text-neutral-400 py-8 rounded-2xl border border-dashed border-gray-200 dark:border-neutral-700 px-4">
                   Comece por <strong className="text-hz-ink dark:text-white">+ Agendar visita</strong> ou pelo{' '}
                   <strong className="text-hz-ink dark:text-white">Assistente</strong>.
@@ -1370,6 +1449,11 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
               {visitasFiltradas.length === 0 && agendaBusca.trim() ? (
                 <p className="text-center text-sm text-gray-500 dark:text-neutral-400 py-8">
                   Nenhuma visita corresponde à pesquisa. Limpe o campo ou altere o texto.
+                </p>
+              ) : null}
+              {visitasFiltradas.length === 0 && !agendaBusca.trim() && agendaEtapa !== 'todas' ? (
+                <p className="text-center text-sm text-gray-500 dark:text-neutral-400 py-8 rounded-2xl border border-dashed border-gray-200 dark:border-neutral-700 px-4">
+                  Nenhuma visita nesta etapa.
                 </p>
               ) : null}
               {visitasFiltradas.map((v) => {
@@ -1498,6 +1582,22 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2 shrink-0 self-end sm:self-center items-center justify-end">
+                      <label className="sr-only" htmlFor={`etapa-visita-${v.id}`}>
+                        Alterar etapa de {v.cliente}
+                      </label>
+                      <select
+                        id={`etapa-visita-${v.id}`}
+                        value={fe}
+                        onChange={(e) => atualizarEtapaVisita(v, e.target.value as FunilVisita)}
+                        className="min-h-[48px] px-3 rounded-2xl bg-brand-dark text-brand-gold dark:bg-neutral-800 border border-brand-gold/30 text-xs font-black outline-none"
+                        aria-label={`Etapa da visita de ${v.cliente}`}
+                      >
+                        <option value="agendada">Agendada</option>
+                        <option value="realizada">Realizada</option>
+                        <option value="proposta">Proposta</option>
+                        <option value="fechado">Fechado</option>
+                        <option value="cancelada">Cancelada</option>
+                      </select>
                       {mapHref ? (
                         <a
                           href={mapHref}
