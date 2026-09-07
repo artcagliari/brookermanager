@@ -282,7 +282,8 @@ function coerceCliente(x: unknown): Cliente | null {
     nome: String(o.nome ?? ''),
     fone: String(o.fone ?? ''),
     valor: Number(o.valor) || 0,
-    status: String(o.status ?? 'Quente'),
+    // O fechamento pertence ao Pós-visita/VGV. Aqui o status representa somente prioridade.
+    status: String(o.status ?? 'Quente') === 'Fechado' ? 'Quente' : String(o.status ?? 'Quente'),
     bairrosInteresse:
       o.bairrosInteresse != null && String(o.bairrosInteresse).trim()
         ? String(o.bairrosInteresse)

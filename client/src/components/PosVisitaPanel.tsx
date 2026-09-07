@@ -11,6 +11,7 @@ import { clienteAgendaLabel, formatBrlFull, parseBrlNumber } from '../utils';
 import { todayISODate } from '../lib/datetimeAgenda';
 import { googleMapsDirectionsUrl, wazeMultiUrl } from '../lib/mapsRoute';
 import { downloadIcsForVisitas } from '../lib/calendarLinks';
+import { resolveSaleOwner } from '../lib/brokerWorkflow';
 
 type Props = {
   db: BrokerDb;
@@ -46,7 +47,7 @@ function resumoConversa(v: Visita): string {
 function precoParaCampoValor(m: Imovel): string {
   const p = Number(m.preco);
   if (!Number.isFinite(p) || p <= 0) return '';
-  return String(p);
+  return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }).format(p);
 }
 
 export function PosVisitaPanel({ db, setDb, onRegistrarNaAgenda, currentUserId }: Props) {
@@ -79,14 +80,18 @@ export function PosVisitaPanel({ db, setDb, onRegistrarNaAgenda, currentUserId }
   const visitasParaVincular = useMemo(
     () =>
       [...db.visitas]
-        .filter((v) => v.funilEstado !== 'cancelada')
+        .filter(
+          (v) =>
+            v.funilEstado !== 'cancelada' &&
+            !vendas.some((venda) => venda.visitaId === v.id)
+        )
         .sort((a, b) => {
           const da = a.data || '';
           const db_ = b.data || '';
           if (da !== db_) return db_.localeCompare(da);
           return a.hora.localeCompare(b.hora);
         }),
-    [db.visitas]
+    [db.visitas, vendas]
   );
 
   const visitaSelecionada = useMemo(() => {
@@ -156,6 +161,10 @@ export function PosVisitaPanel({ db, setDb, onRegistrarNaAgenda, currentUserId }
     }
     const vis = db.visitas.find((x) => x.id === selVisitaId);
     if (!vis) return;
+    if (vendas.some((venda) => venda.visitaId === vis.id)) {
+      alert('Esta visita já possui uma venda registrada. Remova o registro existente antes de criar outro.');
+      return;
+    }
     let imovelIdNum: number;
     if (imovelIdForm !== '') {
       imovelIdNum = Number(imovelIdForm);
@@ -168,6 +177,10 @@ export function PosVisitaPanel({ db, setDb, onRegistrarNaAgenda, currentUserId }
     const valorVenda = parseBrlNumber(valorVendaStr);
     if (!Number.isFinite(valorVenda) || valorVenda <= 0) {
       alert('Indique o valor da venda.');
+      return;
+    }
+    if (vendas.some((venda) => venda.imovelId === imovelIdNum)) {
+      alert('Este imóvel já possui uma venda registrada. Verifique a lista de vendas antes de continuar.');
       return;
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dataCheckin)) {
@@ -185,7 +198,7 @@ export function PosVisitaPanel({ db, setDb, onRegistrarNaAgenda, currentUserId }
       clienteId: cid,
       visitaId: Number(selVisitaId),
       vendaConfirmada: false,
-      ownerUserId: currentUserId,
+      ownerUserId: resolveSaleOwner(vis, currentUserId),
     };
     setDb((d) => ({
       ...d,
@@ -425,10 +438,17 @@ export function PosVisitaPanel({ db, setDb, onRegistrarNaAgenda, currentUserId }
               Valor da venda (R$) — imóvel ou acordado
             </label>
             <input
-              type="number"
-              inputMode="decimal"
+              type="text"
+              inputMode="numeric"
               value={valorVendaStr}
-              onChange={(e) => setValorVendaStr(e.target.value)}
+              onChange={(e) => {
+                const value = parseBrlNumber(e.target.value);
+                setValorVendaStr(
+                  value > 0
+                    ? new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }).format(value)
+                    : ''
+                );
+              }}
               placeholder="Vem do imóvel; altere só se o valor acordado for outro"
               className="w-full mt-1 p-4 rounded-2xl bg-white dark:bg-neutral-800 dark:text-white border border-gray-200 dark:border-neutral-700 font-bold outline-none min-h-[48px]"
             />

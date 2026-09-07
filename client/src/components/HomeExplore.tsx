@@ -1,29 +1,38 @@
 import { useEffect, useMemo, useState } from 'react';
-import { normalizeTipoImovel, primeiraFotoImovel, tituloImovel, type Imovel } from '../types';
+import { normalizeTipoImovel, primeiraFotoImovel, tituloImovel, type BrokerDb, type Imovel } from '../types';
 import { formatBrlFull } from '../utils';
+import { getBrokerSnapshot } from '../lib/brokerWorkflow';
 
 const CATEGORIAS_FILTRO = ['Todos', 'Apartamento', 'Casa'] as const;
 
 type Props = {
-  imoveis: Imovel[];
+  db: BrokerDb;
   onToggleFavorito: (id: number) => void;
   onAbrirImovel: (i: Imovel) => void;
   onNovoImovel: () => void;
   onRemoverImovel: (id: number) => void;
-  onAdicionarImoveisDemo: () => void;
   /** Abre a agenda com hora e endereço já preenchidos a partir do imóvel */
   onAgendarVisita: (i: Imovel) => void;
+  onNovaVisita: () => void;
+  onNovoLead: () => void;
+  onAbrirAgenda: () => void;
+  onAbrirPosVisita: () => void;
 };
 
 export function HomeExplore({
-  imoveis,
+  db,
   onToggleFavorito,
   onAbrirImovel,
   onNovoImovel,
   onRemoverImovel,
-  onAdicionarImoveisDemo,
   onAgendarVisita,
+  onNovaVisita,
+  onNovoLead,
+  onAbrirAgenda,
+  onAbrirPosVisita,
 }: Props) {
+  const imoveis = db.imoveis;
+  const snapshot = useMemo(() => getBrokerSnapshot(db), [db]);
   const [q, setQ] = useState('');
   const [tipoFiltro, setTipoFiltro] = useState<(typeof CATEGORIAS_FILTRO)[number]>('Todos');
   const [sort, setSort] = useState<'preco_asc' | 'preco_desc' | 'quartos' | 'recent'>('recent');
@@ -97,54 +106,64 @@ export function HomeExplore({
 
   return (
     <div className="space-y-8 pb-4">
-      <section className="relative overflow-hidden rounded-[2rem] bg-hz-ink text-white shadow-xl">
-        <div
-          className="absolute inset-0 opacity-40"
-          style={{
-            backgroundImage:
-              'url(https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1200&q=80&auto=format&fit=crop)',
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-          }}
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/35 to-black/20" />
-        <div className="relative px-6 sm:px-8 py-10 sm:py-12">
-          <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-white/70 mb-2">
-            Inspire-se · Compare · Agende
-          </p>
-          <h2 className="font-display text-3xl sm:text-4xl leading-tight mb-3">
-            O estilo que você busca, <span className="text-emerald-200/95">num só lugar</span>
-          </h2>
-          <p className="text-sm text-white/80 max-w-md mb-6">
-            Aqui aparecem só os imóveis que <strong className="text-white">você cadastrou</strong> nesta
-            conta. Filtre, favorite, compare e marque visita na agenda já com o endereço do imóvel.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="flex-1 relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/50" aria-hidden>
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeWidth={2}
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
-              </span>
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Buscar bairro, cidade ou palavra-chave…"
-                className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-white/95 text-hz-ink placeholder:text-gray-400 outline-none focus:ring-2 ring-emerald-400/80 text-base shadow-lg"
-              />
+      <section className="overflow-hidden rounded-[2rem] bg-hz-ink text-white shadow-xl border border-white/5">
+        <div className="p-5 sm:p-7 space-y-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-300">Operação de hoje</p>
+              <h2 className="font-display text-3xl leading-tight mt-1">Seu painel de trabalho</h2>
+              <p className="text-xs text-white/60 mt-1">O que precisa de atenção agora, sem misturar com o catálogo.</p>
             </div>
-            <button
-              type="button"
-              onClick={onNovoImovel}
-              className="shrink-0 px-6 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-white font-bold text-sm shadow-lg shadow-emerald-900/30 active:scale-[0.98] transition-transform"
-            >
-              + Anúncio
+            <span className="shrink-0 rounded-xl bg-white/10 px-3 py-2 text-xs font-bold tabular-nums">
+              {new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <button type="button" onClick={onAbrirAgenda} className="rounded-2xl bg-white/10 p-3 text-left hover:bg-white/15 transition-colors">
+              <strong className="block text-2xl text-emerald-300 tabular-nums">{snapshot.visitasHoje.length}</strong>
+              <span className="text-[10px] font-bold uppercase text-white/65">Visitas hoje</span>
+            </button>
+            <button type="button" onClick={onAbrirPosVisita} className="rounded-2xl bg-white/10 p-3 text-left hover:bg-white/15 transition-colors">
+              <strong className="block text-2xl text-amber-300 tabular-nums">{snapshot.followUps.length}</strong>
+              <span className="text-[10px] font-bold uppercase text-white/65">Retornos</span>
+            </button>
+            <button type="button" onClick={onNovoLead} className="rounded-2xl bg-white/10 p-3 text-left hover:bg-white/15 transition-colors">
+              <strong className="block text-2xl text-sky-300 tabular-nums">{snapshot.leadsAtivos}</strong>
+              <span className="text-[10px] font-bold uppercase text-white/65">Leads</span>
+            </button>
+            <button type="button" onClick={onAbrirPosVisita} className="rounded-2xl bg-white/10 p-3 text-left hover:bg-white/15 transition-colors">
+              <strong className="block text-2xl text-violet-300 tabular-nums">{snapshot.vendasPendentes}</strong>
+              <span className="text-[10px] font-bold uppercase text-white/65">Vendas pendentes</span>
             </button>
           </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <button type="button" onClick={onNovaVisita} className="min-h-[46px] rounded-xl bg-emerald-500 text-xs font-black">+ Visita</button>
+            <button type="button" onClick={onNovoLead} className="min-h-[46px] rounded-xl bg-white/10 text-xs font-black">+ Lead</button>
+            <button type="button" onClick={onNovoImovel} className="min-h-[46px] rounded-xl bg-white/10 text-xs font-black">+ Imóvel</button>
+          </div>
         </div>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex-1 relative">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" aria-hidden>⌕</span>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Buscar imóvel por endereço, bairro ou cidade…"
+              className="w-full min-h-[48px] pl-11 pr-4 rounded-2xl bg-white dark:bg-neutral-900 text-hz-ink dark:text-white border border-gray-200 dark:border-neutral-700 placeholder:text-gray-400 outline-none focus:ring-2 ring-hz-green/30 text-sm font-semibold"
+            />
+          </div>
+          <button type="button" onClick={onNovoImovel} className="min-h-[48px] px-5 rounded-2xl bg-hz-green text-white font-bold text-sm">
+            + Cadastrar imóvel
+          </button>
+        </div>
+        <p className="text-[11px] text-gray-500 dark:text-neutral-400">
+          Catálogo compartilhado com toda a imobiliária · {snapshot.imoveisDisponiveis} disponível(is)
+        </p>
       </section>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -204,23 +223,16 @@ export function HomeExplore({
         <div className="rounded-[2rem] border-2 border-dashed border-gray-200 dark:border-neutral-600 bg-white dark:bg-neutral-900 p-10 text-center">
           <p className="text-hz-ink dark:text-white font-bold text-lg mb-2">Nenhum imóvel cadastrado</p>
           <p className="text-sm text-gray-500 dark:text-neutral-400 mb-6 max-w-sm mx-auto">
-            Cadastre o imóvel com endereço e fotos, ou carregue a demonstração. Depois use
+            Cadastre o imóvel com endereço e fotos. Depois use
             &quot;Agendar visita&quot; para levar o imóvel direto para a agenda.
           </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          <div className="flex justify-center">
             <button
               type="button"
               onClick={onNovoImovel}
               className="px-6 py-3 rounded-2xl bg-hz-green text-white font-bold text-sm shadow-md"
             >
               Cadastrar primeiro imóvel
-            </button>
-            <button
-              type="button"
-              onClick={onAdicionarImoveisDemo}
-              className="px-6 py-3 rounded-2xl border border-hz-green/40 text-hz-green font-bold text-sm hover:bg-hz-cream dark:hover:bg-neutral-800"
-            >
-              Carregar demonstração
             </button>
           </div>
         </div>

@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
 import type { BrokerDb } from '../types';
-import { comissaoTotalConfirmada, valorComissaoVenda, vgvTotalConfirmado } from '../types';
 import type { TeamMemberProfile } from '../api';
 import { formatBrlFull } from '../utils';
+import { buildTeamSalesReport } from '../lib/brokerWorkflow';
 
 type Props = {
   db: BrokerDb;
@@ -29,33 +29,7 @@ export function EmpresaEquipaPanel({
   );
 
   const relatorioVendas = useMemo(() => {
-    const vendas = db.vendasCheckin ?? [];
-    const ownerIds = new Set(team.map((m) => m.id));
-    for (const venda of vendas) ownerIds.add(venda.ownerUserId ?? '__sem__');
-    const rows = [...ownerIds].map((uid) => {
-      const membro = team.find((m) => m.id === uid);
-      const list = vendas.filter((v) => (v.ownerUserId ?? '__sem__') === uid);
-      const confirmadas = list.filter((v) => v.vendaConfirmada !== false);
-      const pendentes = list.filter((v) => v.vendaConfirmada === false);
-      return {
-        uid,
-        nome:
-          membro?.nome_exibicao?.trim() ||
-          (uid === '__sem__' ? 'Sem responsável (registros antigos)' : 'Usuário não listado'),
-        role: membro?.role,
-        count: confirmadas.length,
-        pendingCount: pendentes.length,
-        vgv: vgvTotalConfirmado(confirmadas),
-        commission: comissaoTotalConfirmada(confirmadas),
-        pendingCommission: pendentes.reduce((sum, venda) => sum + valorComissaoVenda(venda), 0),
-      };
-    });
-    rows.sort((a, b) => b.commission - a.commission || b.vgv - a.vgv || a.nome.localeCompare(b.nome, 'pt-BR'));
-    const totalVgv = rows.reduce((s, r) => s + r.vgv, 0);
-    const totalN = rows.reduce((s, r) => s + r.count, 0);
-    const totalCommission = rows.reduce((s, r) => s + r.commission, 0);
-    const totalPendingCommission = rows.reduce((s, r) => s + r.pendingCommission, 0);
-    return { rows, totalVgv, totalN, totalCommission, totalPendingCommission };
+    return buildTeamSalesReport(db.vendasCheckin ?? [], team);
   }, [db.vendasCheckin, team]);
 
   const avisoCorretoresOcultos =

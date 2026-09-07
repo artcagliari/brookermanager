@@ -37,6 +37,7 @@ import { todayISODate, visitaSortKey } from '../lib/datetimeAgenda';
 import { googleMapsDirectionsUrl } from '../lib/mapsRoute';
 import { matchImoveisParaCliente } from '../lib/matchImoveis';
 import { msgLembrete24h, msgLembrete2h, msgPosVisita, whatsappLink } from '../lib/whatsappTemplates';
+import { filterDbForOwner } from '../lib/brokerWorkflow';
 import { AgendaAssistantChat } from './AgendaAssistantChat';
 import { HomeExplore } from './HomeExplore';
 import { ImovelSearchPicker } from './ImovelSearchPicker';
@@ -109,36 +110,6 @@ function foneParaClienteVisita(clienteVisita: string, clientes: Cliente[]): stri
   const hit = clientes.find((c) => c.nome.trim().toLowerCase() === base.toLowerCase());
   if (hit?.fone) return onlyDigits(hit.fone);
   return null;
-}
-
-/** UUID / texto: comparação estável (evita imóveis “sumirem” por diferença de maiúsculas no JSON). */
-function ownerMatch(rowOwner: string | undefined, userId: string): boolean {
-  const a = (rowOwner ?? '').trim().toLowerCase();
-  const b = userId.trim().toLowerCase();
-  if (!a || !b) return false;
-  return a === b;
-}
-
-/**
- * Vista por utilizador: CRM pessoal filtrado por `ownerUserId`.
- * O catálogo de imóveis pertence à imobiliária e é compartilhado por toda a equipe.
- */
-function filterBrokerDbForOwnerView(d: BrokerDb, ownerId: string): BrokerDb {
-  const oid = ownerId.trim();
-
-  const visitas = d.visitas.filter((v) => ownerMatch(v.ownerUserId, oid));
-  const clientes = d.clientes.filter((c) => ownerMatch(c.ownerUserId, oid));
-  const tarefas = d.tarefas.filter((t) => ownerMatch(t.ownerUserId, oid));
-  const vendasCheckin = (d.vendasCheckin ?? []).filter((v) => ownerMatch(v.ownerUserId, oid));
-
-  return {
-    ...d,
-    visitas,
-    clientes,
-    imoveis: d.imoveis,
-    tarefas,
-    vendasCheckin,
-  };
 }
 
 export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, profile, userEmail }: Props) {
@@ -216,10 +187,10 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
   /** Empresa sem “vista” vê tudo; empresa na vista de corretor ou corretor vê só `ownerUserId` próprio. */
   const dbVisao = useMemo(() => {
     if (profile.role === 'empresa' && equipaVistaCorretorId) {
-      return filterBrokerDbForOwnerView(db, equipaVistaCorretorId);
+      return filterDbForOwner(db, equipaVistaCorretorId);
     }
     if (profile.role === 'corretor') {
-      return filterBrokerDbForOwnerView(db, profile.id);
+      return filterDbForOwner(db, profile.id);
     }
     return db;
   }, [db, profile.role, profile.id, equipaVistaCorretorId]);
@@ -539,6 +510,16 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
       alert('Nome obrigatório.');
       return;
     }
+    const phoneDigits = onlyDigits(cFone);
+    if (
+      phoneDigits.length >= 10 &&
+      dbVisao.clientes.some(
+        (cliente) => cliente.id !== editClienteId && onlyDigits(cliente.fone) === phoneDigits
+      )
+    ) {
+      alert('Já existe um lead cadastrado com este telefone. Abra o cadastro existente para evitar duplicidade.');
+      return;
+    }
     const qd = parseInt(cQuartos, 10);
     const existing = editClienteId != null ? db.clientes.find((c) => c.id === editClienteId) : undefined;
     const dataCadastro = existing ? dataCadastroEfetiva(existing) : todayISODate();
@@ -579,6 +560,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
   }, [
     editClienteId,
     db.clientes,
+    dbVisao.clientes,
     cNome,
     cFone,
     cStatus,
@@ -768,64 +750,52 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
     }));
   }, [setDb]);
 
-  const adicionarImoveisDemo = useCallback(() => {
-    const t = Date.now();
-    const demos: Imovel[] = [
-      {
-        id: t,
-        endereco: 'Av. Paulista, 1000',
-        bairro: 'Bela Vista',
-        cidade: 'São Paulo',
-        preco: 1850000,
-        quartos: 4,
-        banheiros: 3,
-        tipo: 'Apartamento',
-        fotos: [
-          'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&q=80&auto=format&fit=crop',
-        ],
-        favorito: true,
-        ownerUserId: effectiveOwnerUserId,
-      },
-      {
-        id: t + 1,
-        endereco: 'Rua Oscar Freire, 500',
-        bairro: 'Jardins',
-        cidade: 'São Paulo',
-        preco: 920000,
-        quartos: 3,
-        banheiros: 2,
-        tipo: 'Apartamento',
-        fotos: [
-          'https://images.unsplash.com/photo-1600585154526-990dced4db0d?w=800&q=80&auto=format&fit=crop',
-        ],
-        favorito: false,
-        ownerUserId: effectiveOwnerUserId,
-      },
-      {
-        id: t + 2,
-        endereco: 'Rua das Acácias, 120',
-        bairro: 'Alto da Boa Vista',
-        cidade: 'São Paulo',
-        preco: 2400000,
-        quartos: 4,
-        banheiros: 4,
-        tipo: 'Casa',
-        fotos: [
-          'https://images.unsplash.com/photo-1600566753086-00f18fb6b3ea?w=800&q=80&auto=format&fit=crop',
-        ],
-        favorito: false,
-        ownerUserId: effectiveOwnerUserId,
-      },
-    ];
-    setDb((d) => ({ ...d, imoveis: [...d.imoveis, ...demos] }));
-  }, [setDb, effectiveOwnerUserId]);
-
   const remover = useCallback(
     (key: keyof Pick<BrokerDb, 'visitas' | 'clientes' | 'tarefas' | 'imoveis'>, id: number) => {
-      if (!confirm('Deseja remover?')) return;
-      setDb((d) => ({ ...d, [key]: d[key].filter((x) => x.id !== id) }));
+      if (key === 'imoveis' && (db.vendasCheckin ?? []).some((v) => v.imovelId === id)) {
+        alert('Este imóvel possui uma venda ligada. Remova primeiro o registro de venda no Pós-visita para preservar o histórico financeiro.');
+        return;
+      }
+      const nome = key === 'visitas' ? 'esta visita' : key === 'clientes' ? 'este lead' : key === 'imoveis' ? 'este imóvel' : 'esta tarefa';
+      if (!confirm(`Deseja remover ${nome}? Os vínculos relacionados serão ajustados automaticamente.`)) return;
+      setDb((d) => {
+        if (key === 'visitas') {
+          return {
+            ...d,
+            visitas: d.visitas.filter((item) => item.id !== id),
+            vendasCheckin: (d.vendasCheckin ?? []).map((venda) =>
+              venda.visitaId === id ? { ...venda, visitaId: undefined } : venda
+            ),
+          };
+        }
+        if (key === 'clientes') {
+          return {
+            ...d,
+            clientes: d.clientes.filter((item) => item.id !== id),
+            visitas: d.visitas.map((visita) =>
+              visita.clienteId === id ? { ...visita, clienteId: undefined } : visita
+            ),
+            vendasCheckin: (d.vendasCheckin ?? []).map((venda) =>
+              venda.clienteId === id ? { ...venda, clienteId: undefined } : venda
+            ),
+          };
+        }
+        if (key === 'imoveis') {
+          return {
+            ...d,
+            imoveis: d.imoveis.filter((item) => item.id !== id),
+            visitas: d.visitas.map((visita) =>
+              visita.imovelId === id ? { ...visita, imovelId: undefined } : visita
+            ),
+            clientes: d.clientes.map((cliente) =>
+              cliente.imovelInteresseId === id ? { ...cliente, imovelInteresseId: undefined } : cliente
+            ),
+          };
+        }
+        return { ...d, tarefas: d.tarefas.filter((item) => item.id !== id) };
+      });
     },
-    [setDb]
+    [db.vendasCheckin, setDb]
   );
 
   const calcular = useCallback(() => {
@@ -1279,7 +1249,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                 Vista: <span className="text-brand-gold">{nomeVistaCorretor}</span>
               </p>
               <p className="text-[10px] text-gray-600 dark:text-neutral-400 mt-0.5 leading-snug">
-                Início, agenda, leads, imóveis, pós-visita e tarefas mostram só o que este utilizador tem atribuído.
+                Agenda, leads, pós-visita e tarefas mostram o responsável selecionado. O catálogo de imóveis continua compartilhado pela imobiliária.
               </p>
             </div>
             <button
@@ -1300,13 +1270,16 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
       >
         {section === 'inicio' ? (
           <HomeExplore
-            imoveis={dbVisao.imoveis}
+            db={dbVisao}
             onToggleFavorito={toggleFavoritoImovel}
             onAbrirImovel={openEditImovel}
             onNovoImovel={openNovoImovel}
             onRemoverImovel={(id) => remover('imoveis', id)}
-            onAdicionarImoveisDemo={adicionarImoveisDemo}
             onAgendarVisita={agendarVisitaComImovel}
+            onNovaVisita={openNovaVisita}
+            onNovoLead={openNovoCliente}
+            onAbrirAgenda={() => setSection('agenda')}
+            onAbrirPosVisita={() => setSection('painel')}
           />
         ) : null}
 
@@ -1502,11 +1475,11 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                             </span>
                           )}
                         </p>
-                        <div
-                          role="group"
-                          aria-label="Calendário e WhatsApp"
-                          className="flex flex-wrap gap-1.5 mt-3"
-                        >
+                        <details className="mt-3 group">
+                          <summary className="cursor-pointer list-none inline-flex min-h-[36px] items-center rounded-xl border border-gray-200 dark:border-neutral-700 px-3 text-[10px] font-black uppercase text-gray-500 dark:text-neutral-400">
+                            Lembretes e calendário <span className="ml-2 group-open:rotate-180 transition-transform">⌄</span>
+                          </summary>
+                          <div role="group" aria-label="Calendário e WhatsApp" className="flex flex-wrap gap-1.5 mt-2">
                           <a
                             href={googleCalendarUrl(v)}
                             target="_blank"
@@ -1560,7 +1533,8 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                               WhatsApp pós-visita
                             </a>
                           ) : null}
-                        </div>
+                          </div>
+                        </details>
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2 shrink-0 self-end sm:self-center items-center justify-end">
@@ -1740,7 +1714,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
               ) : null}
               {clientesFiltrados.map((c) => {
                 const digits = onlyDigits(c.fone);
-                const wa = digits ? 'https://wa.me/55' + digits : '';
+                const wa = digits ? whatsappLink(c.fone, '') : null;
                 const matches = matchImoveisParaCliente(c, db.imoveis).slice(0, 2);
                 const imLead =
                   c.imovelInteresseId != null
@@ -1796,7 +1770,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                       ) : null}
                     </div>
                     <div className="flex gap-2 shrink-0">
-                      {digits ? (
+                      {wa ? (
                         <a
                           href={wa}
                           target="_blank"
@@ -2240,7 +2214,6 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                 <option value="Quente">🔥 Quente</option>
                 <option value="Morno">🌤️ Morno</option>
                 <option value="Frio">❄️ Frio</option>
-                <option value="Fechado">🚀 Fechado</option>
               </select>
               <input
                 value={cBairros}
