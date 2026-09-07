@@ -30,22 +30,47 @@ export const VISIT_STATUS_LABEL: Record<FunilVisita, string> = {
   cancelada: 'Cancelada',
 };
 
-export type ClientCrmStage = 'lead' | 'visita' | 'pos_visita' | 'proposta' | 'venda';
+export type ClientCrmStage =
+  | 'novo'
+  | 'contato'
+  | 'qualificado'
+  | 'visita'
+  | 'pos_visita'
+  | 'proposta'
+  | 'venda'
+  | 'perdido';
 
 export const CRM_STAGE_LABEL: Record<ClientCrmStage, string> = {
-  lead: 'Lead',
-  visita: 'Visita agendada',
+  novo: 'Novo lead',
+  contato: 'Em contato',
+  qualificado: 'Qualificado',
+  visita: 'Visita',
   pos_visita: 'Pós-visita',
   proposta: 'Proposta',
   venda: 'Venda',
+  perdido: 'Perdido',
+};
+
+export const CRM_STAGE_DESCRIPTION: Record<ClientCrmStage, string> = {
+  novo: 'Aguardando o primeiro contato',
+  contato: 'Conversa iniciada; entender a necessidade',
+  qualificado: 'Perfil, região e orçamento validados',
+  visita: 'Visita agendada para um imóvel',
+  pos_visita: 'Visita feita; registrar retorno',
+  proposta: 'Condições apresentadas ao cliente',
+  venda: 'Negócio registrado no VGV',
+  perdido: 'Oportunidade encerrada sem venda',
 };
 
 export const CRM_STAGE_ORDER: ClientCrmStage[] = [
-  'lead',
+  'novo',
+  'contato',
+  'qualificado',
   'visita',
   'pos_visita',
   'proposta',
   'venda',
+  'perdido',
 ];
 
 function visitBelongsToClient(visita: Visita, cliente: Cliente): boolean {
@@ -72,19 +97,26 @@ export function getClientCrmStage(db: BrokerDb, cliente: Cliente): ClientCrmStag
     return 'venda';
   }
 
+  if (cliente.etapaCrmManual === 'perdido') return 'perdido';
+
   if (visitas.some((visita) => visita.funilEstado === 'proposta')) return 'proposta';
   if (visitas.some((visita) => visita.funilEstado === 'realizada')) return 'pos_visita';
   if (visitas.some((visita) => (visita.funilEstado ?? 'agendada') === 'agendada')) return 'visita';
-  return 'lead';
+  if (cliente.etapaCrmManual === 'qualificado') return 'qualificado';
+  if (cliente.etapaCrmManual === 'contato') return 'contato';
+  return 'novo';
 }
 
 export function getCrmStageCounts(db: BrokerDb): Record<ClientCrmStage, number> {
   const counts: Record<ClientCrmStage, number> = {
-    lead: 0,
+    novo: 0,
+    contato: 0,
+    qualificado: 0,
     visita: 0,
     pos_visita: 0,
     proposta: 0,
     venda: 0,
+    perdido: 0,
   };
   for (const cliente of db.clientes) counts[getClientCrmStage(db, cliente)] += 1;
   return counts;
@@ -106,7 +138,18 @@ export function getBrokerSnapshot(db: BrokerDb, today = todayISODate()) {
   return {
     visitasHoje,
     followUps,
-    leadsAtivos: db.clientes.length,
+    leadsAtivos: db.clientes.filter((cliente) => {
+      const etapa = getClientCrmStage(db, cliente);
+      return etapa !== 'venda' && etapa !== 'perdido';
+    }).length,
+    contatosAtrasados: db.clientes.filter((cliente) => {
+      const etapa = getClientCrmStage(db, cliente);
+      return (
+        etapa !== 'venda' &&
+        etapa !== 'perdido' &&
+        Boolean(cliente.proximoContatoEm && cliente.proximoContatoEm < today)
+      );
+    }).length,
     tarefas: db.tarefas.length,
     imoveisDisponiveis: db.imoveis.filter((m) => m.disponivel !== false).length,
     vendasPendentes: vendasPendentes.length,

@@ -39,6 +39,7 @@ import { matchImoveisParaCliente } from '../lib/matchImoveis';
 import { msgLembrete24h, msgLembrete2h, msgPosVisita, whatsappLink } from '../lib/whatsappTemplates';
 import {
   CRM_STAGE_LABEL,
+  CRM_STAGE_DESCRIPTION,
   CRM_STAGE_ORDER,
   filterDbForOwner,
   getClientCrmStage,
@@ -71,11 +72,14 @@ const ABAS_AGENDA: { value: 'todas' | FunilVisita; label: string }[] = [
 ];
 
 const CRM_STAGE_STYLE: Record<ClientCrmStage, string> = {
-  lead: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200',
+  novo: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200',
+  contato: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-300',
+  qualificado: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300',
   visita: 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300',
   pos_visita: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300',
   proposta: 'bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300',
   venda: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300',
+  perdido: 'bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300',
 };
 
 /** Para ordenar/filtrar; leads antigos sem campo usam data inferida do `id` (timestamp) ou 1970-01-01. */
@@ -162,6 +166,8 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
   const [cQuartos, setCQuartos] = useState('');
   const [cOrcMax, setCOrcMax] = useState('');
   const [cNotas, setCNotas] = useState('');
+  const [cEtapaCrmManual, setCEtapaCrmManual] = useState<'novo' | 'contato' | 'qualificado' | 'perdido'>('novo');
+  const [cProximoContatoEm, setCProximoContatoEm] = useState('');
   const [cImovelInteresseId, setCImovelInteresseId] = useState<number | undefined>(undefined);
 
   const [fValor, setFValor] = useState('');
@@ -521,6 +527,8 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
     setCQuartos('');
     setCOrcMax('');
     setCNotas('');
+    setCEtapaCrmManual('novo');
+    setCProximoContatoEm('');
     setCImovelInteresseId(undefined);
     setModalCliente(true);
   }, []);
@@ -534,6 +542,8 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
     setCQuartos(c.quartosDesejados != null ? String(c.quartosDesejados) : '');
     setCOrcMax(c.orcamentoMax != null ? maskBrlWhole(c.orcamentoMax) : '');
     setCNotas(c.notas ?? '');
+    setCEtapaCrmManual(c.etapaCrmManual ?? 'novo');
+    setCProximoContatoEm(c.proximoContatoEm ?? '');
     setCImovelInteresseId(c.imovelInteresseId);
     setModalCliente(true);
   }, []);
@@ -569,6 +579,15 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
       urgencia: existing?.urgencia,
       notas: cNotas.trim() || undefined,
       estagioFunil: 'lead',
+      etapaCrmManual: cEtapaCrmManual,
+      ultimoContatoEm:
+        cEtapaCrmManual === 'contato' || cEtapaCrmManual === 'qualificado'
+          ? existing?.ultimoContatoEm ?? todayISODate()
+          : existing?.ultimoContatoEm,
+      proximoContatoEm:
+        cProximoContatoEm && /^\d{4}-\d{2}-\d{2}$/.test(cProximoContatoEm)
+          ? cProximoContatoEm
+          : undefined,
       imovelInteresseId:
         cImovelInteresseId != null && Number.isFinite(cImovelInteresseId)
           ? cImovelInteresseId
@@ -602,10 +621,35 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
     cQuartos,
     cOrcMax,
     cNotas,
+    cEtapaCrmManual,
+    cProximoContatoEm,
     cImovelInteresseId,
     effectiveOwnerUserId,
     setDb,
   ]);
+
+  const atualizarEtapaManualCliente = useCallback(
+    (clienteId: number, etapa: 'novo' | 'contato' | 'qualificado' | 'perdido') => {
+      const hoje = todayISODate();
+      setDb((current) => ({
+        ...current,
+        clientes: current.clientes.map((cliente) =>
+          cliente.id === clienteId
+            ? {
+                ...cliente,
+                etapaCrmManual: etapa,
+                ultimoContatoEm:
+                  etapa === 'contato' || etapa === 'qualificado'
+                    ? hoje
+                    : cliente.ultimoContatoEm,
+                proximoContatoEm: etapa === 'perdido' ? undefined : cliente.proximoContatoEm,
+              }
+            : cliente
+        ),
+      }));
+    },
+    [setDb]
+  );
 
   const openNovoImovel = useCallback(() => {
     if (section !== 'inicio') {
@@ -1030,7 +1074,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
       ],
       [
         'painel',
-        'Pós-visita',
+        'Negócios',
         'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01',
       ],
     ];
@@ -1207,7 +1251,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                 (headerLight ? 'text-gray-500 dark:text-neutral-400' : 'text-gray-400')
               }
             >
-              Leads
+              Clientes no CRM
             </span>
           </div>
           <div
@@ -1240,7 +1284,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                 (headerLight ? 'text-gray-400 dark:text-neutral-500' : 'text-gray-500')
               }
             >
-              Vendas no Pós-visita
+              Central de negócios
             </span>
           </div>
           <div
@@ -1319,6 +1363,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
             onNovaVisita={openNovaVisita}
             onNovoLead={openNovoCliente}
             onAbrirAgenda={() => setSection('agenda')}
+            onAbrirCrm={() => setSection('clientes')}
             onAbrirPosVisita={() => setSection('painel')}
           />
         ) : null}
@@ -1664,7 +1709,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                   Todos {dbVisao.clientes.length}
                 </button>
               </div>
-              <div className="grid grid-cols-5 gap-1.5 overflow-x-auto" role="tablist" aria-label="Etapas do CRM">
+              <div className="grid grid-cols-8 gap-1.5 overflow-x-auto pb-1" role="tablist" aria-label="Etapas do CRM">
                 {CRM_STAGE_ORDER.map((etapa, index) => {
                   const active = crmEtapa === etapa;
                   return (
@@ -1674,7 +1719,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                       role="tab"
                       aria-selected={active}
                       onClick={() => setCrmEtapa(etapa)}
-                      className={`relative min-w-[6.4rem] min-h-[72px] rounded-xl p-2.5 text-left border transition-colors ${
+                      className={`relative min-w-[8.5rem] min-h-[102px] rounded-xl p-2.5 text-left border transition-colors ${
                         active
                           ? 'border-brand-gold ring-2 ring-brand-gold/20 bg-brand-gold/5'
                           : 'border-gray-100 dark:border-neutral-800 bg-gray-50/70 dark:bg-neutral-800/50'
@@ -1685,6 +1730,9 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                       </span>
                       <span className="block text-[9px] font-black uppercase leading-tight text-brand-dark dark:text-neutral-200 mt-2">
                         {CRM_STAGE_LABEL[etapa]}
+                      </span>
+                      <span className="block text-[9px] leading-tight text-gray-500 dark:text-neutral-400 mt-1">
+                        {CRM_STAGE_DESCRIPTION[etapa]}
                       </span>
                       {index < CRM_STAGE_ORDER.length - 1 ? (
                         <span className="absolute -right-2 top-1/2 z-10 hidden sm:block text-gray-300 dark:text-neutral-600" aria-hidden>›</span>
@@ -1838,6 +1886,35 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                           <span className="text-gray-400 dark:text-neutral-500"> · data estimada</span>
                         ) : null}
                       </p>
+                      {c.ultimoContatoEm ? (
+                        <p className="text-[10px] text-gray-400 dark:text-neutral-500 mt-1">
+                          Último contato: {formatDataCadastroBr(c.ultimoContatoEm)}
+                        </p>
+                      ) : null}
+                      <p className="text-[11px] text-gray-500 dark:text-neutral-400 mt-2 rounded-xl bg-gray-50 dark:bg-neutral-800/60 px-3 py-2">
+                        <strong className="text-brand-dark dark:text-white">Próxima ação:</strong>{' '}
+                        {crmStage === 'novo'
+                          ? 'fazer o primeiro contato'
+                          : crmStage === 'contato'
+                            ? 'validar perfil, orçamento e região'
+                            : crmStage === 'qualificado'
+                              ? 'selecionar imóvel e agendar visita'
+                              : crmStage === 'visita'
+                                ? 'realizar a visita na data combinada'
+                                : crmStage === 'pos_visita'
+                                  ? 'registrar feedback e decisão do cliente'
+                                  : crmStage === 'proposta'
+                                    ? 'acompanhar a negociação e registrar a venda'
+                                    : crmStage === 'venda'
+                                      ? 'acompanhar confirmação e comissão'
+                                      : 'reativar somente quando houver novo interesse'}
+                        {c.proximoContatoEm && crmStage !== 'perdido' && crmStage !== 'venda' ? (
+                          <span className={`block mt-1 font-bold ${c.proximoContatoEm < todayISODate() ? 'text-red-600 dark:text-red-400' : 'text-hz-green dark:text-emerald-400'}`}>
+                            Próximo contato: {formatDataCadastroBr(c.proximoContatoEm)}
+                            {c.proximoContatoEm < todayISODate() ? ' · atrasado' : ''}
+                          </span>
+                        ) : null}
+                      </p>
                       {c.orcamentoMax || c.quartosDesejados ? (
                         <p className="text-[11px] font-bold text-gray-500 dark:text-neutral-400 mt-1">
                           {c.orcamentoMax ? `Até ${formatBrlFull(c.orcamentoMax)}` : 'Orçamento não informado'}
@@ -1865,20 +1942,43 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                       ) : null}
                     </div>
                     <div className="flex flex-wrap items-center gap-2 px-4 py-3 bg-gray-50/80 dark:bg-neutral-800/40 border-t border-gray-100 dark:border-neutral-800">
-                      {crmStage !== 'venda' ? (
+                      {crmStage === 'novo' ? (
                         <button
                           type="button"
-                          onClick={() => openNovaVisitaForCliente(c)}
+                          onClick={() => atualizarEtapaManualCliente(c.id, 'contato')}
                           className="min-h-[40px] px-3.5 rounded-xl bg-brand-dark text-brand-gold font-black text-[10px] uppercase"
                         >
+                          Marcar contato feito
+                        </button>
+                      ) : crmStage === 'contato' ? (
+                        <button type="button" onClick={() => atualizarEtapaManualCliente(c.id, 'qualificado')} className="min-h-[40px] px-3.5 rounded-xl bg-indigo-600 text-white font-black text-[10px] uppercase">
+                          Qualificar lead
+                        </button>
+                      ) : crmStage === 'qualificado' ? (
+                        <button type="button" onClick={() => openNovaVisitaForCliente(c)} className="min-h-[40px] px-3.5 rounded-xl bg-brand-dark text-brand-gold font-black text-[10px] uppercase">
                           + Agendar visita
                         </button>
-                      ) : null}
+                      ) : crmStage === 'visita' ? (
+                        <button type="button" onClick={() => setSection('agenda')} className="min-h-[40px] px-3.5 rounded-xl bg-blue-600 text-white font-black text-[10px] uppercase">
+                          Ver na agenda
+                        </button>
+                      ) : crmStage === 'pos_visita' || crmStage === 'proposta' || crmStage === 'venda' ? (
+                        <button type="button" onClick={() => setSection('painel')} className="min-h-[40px] px-3.5 rounded-xl bg-violet-600 text-white font-black text-[10px] uppercase">
+                          {crmStage === 'venda' ? 'Ver venda' : 'Abrir negociação'}
+                        </button>
+                      ) : (
+                        <button type="button" onClick={() => atualizarEtapaManualCliente(c.id, 'novo')} className="min-h-[40px] px-3.5 rounded-xl bg-gray-700 text-white font-black text-[10px] uppercase">
+                          Reativar lead
+                        </button>
+                      )}
                       {wa ? (
                         <a
                           href={wa}
                           target="_blank"
                           rel="noopener noreferrer"
+                          onClick={() => {
+                            if (crmStage === 'novo') atualizarEtapaManualCliente(c.id, 'contato');
+                          }}
                           className="inline-flex min-h-[40px] items-center bg-brand-success px-3.5 rounded-xl text-white font-black text-[10px] touch-manipulation"
                         >
                           WhatsApp
@@ -1893,6 +1993,19 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                       >
                         Editar
                       </button>
+                      {crmStage !== 'venda' && crmStage !== 'perdido' ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm('Encerrar esta oportunidade como perdida? O lead poderá ser reativado depois.')) {
+                              atualizarEtapaManualCliente(c.id, 'perdido');
+                            }
+                          }}
+                          className="min-h-[40px] px-3 text-gray-500 dark:text-neutral-400 text-[10px] font-bold"
+                        >
+                          Marcar perdido
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => remover('clientes', c.id)}
@@ -2319,6 +2432,36 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                 <option value="Morno">🌤️ Morno</option>
                 <option value="Frio">❄️ Frio</option>
               </select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-xl bg-gray-50 dark:bg-neutral-800/70 p-3">
+                <div>
+                  <label className="block text-[9px] font-black uppercase tracking-wider text-gray-500 dark:text-neutral-400 mb-1">
+                    Etapa inicial do CRM
+                  </label>
+                  <select
+                    value={cEtapaCrmManual}
+                    onChange={(e) => setCEtapaCrmManual(e.target.value as typeof cEtapaCrmManual)}
+                    className="w-full min-h-[44px] px-3 rounded-xl bg-white dark:bg-neutral-900 dark:text-white border border-gray-200 dark:border-neutral-700 text-xs font-bold"
+                  >
+                    <option value="novo">Novo lead</option>
+                    <option value="contato">Em contato</option>
+                    <option value="qualificado">Qualificado</option>
+                    <option value="perdido">Perdido</option>
+                  </select>
+                  <p className="text-[9px] text-gray-400 mt-1">Visitas, proposta e venda avançam automaticamente.</p>
+                </div>
+                <div>
+                  <label className="block text-[9px] font-black uppercase tracking-wider text-gray-500 dark:text-neutral-400 mb-1">
+                    Próximo contato
+                  </label>
+                  <input
+                    type="date"
+                    value={cProximoContatoEm}
+                    onChange={(e) => setCProximoContatoEm(e.target.value)}
+                    disabled={cEtapaCrmManual === 'perdido'}
+                    className="w-full min-h-[44px] px-3 rounded-xl bg-white dark:bg-neutral-900 dark:text-white border border-gray-200 dark:border-neutral-700 text-xs font-bold disabled:opacity-50"
+                  />
+                </div>
+              </div>
               <input
                 value={cBairros}
                 onChange={(e) => setCBairros(e.target.value)}

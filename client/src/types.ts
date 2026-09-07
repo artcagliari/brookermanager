@@ -25,6 +25,7 @@ export type Visita = {
 
 export type UrgenciaLead = 'baixa' | 'media' | 'alta';
 export type EstagioFunilCliente = 'lead';
+export type EtapaCrmManual = 'novo' | 'contato' | 'qualificado' | 'perdido';
 
 export type Cliente = {
   id: number;
@@ -39,6 +40,12 @@ export type Cliente = {
   urgencia?: UrgenciaLead;
   notas?: string;
   estagioFunil?: EstagioFunilCliente;
+  /** Etapas comerciais anteriores à visita ou encerramento manual por perda. */
+  etapaCrmManual?: EtapaCrmManual;
+  /** Última interação realizada com o lead (YYYY-MM-DD). */
+  ultimoContatoEm?: string;
+  /** Data combinada para a próxima interação (YYYY-MM-DD). */
+  proximoContatoEm?: string;
   /** @deprecated — fecho no separador Pós-visita */
   valorNegocio?: number;
   /** @deprecated */
@@ -277,6 +284,8 @@ function coerceCliente(x: unknown): Cliente | null {
   const urgOk: UrgenciaLead[] = ['baixa', 'media', 'alta'];
   const est = String(o.estagioFunil ?? '');
   const estOk: EstagioFunilCliente[] = ['lead'];
+  const etapaCrmRaw = String(o.etapaCrmManual ?? '');
+  const etapasCrmOk: EtapaCrmManual[] = ['novo', 'contato', 'qualificado', 'perdido'];
   return {
     id,
     nome: String(o.nome ?? ''),
@@ -301,6 +310,17 @@ function coerceCliente(x: unknown): Cliente | null {
     estagioFunil: estOk.includes(est as EstagioFunilCliente)
       ? (est as EstagioFunilCliente)
       : undefined,
+    etapaCrmManual: etapasCrmOk.includes(etapaCrmRaw as EtapaCrmManual)
+      ? (etapaCrmRaw as EtapaCrmManual)
+      : undefined,
+    ultimoContatoEm:
+      o.ultimoContatoEm != null && /^\d{4}-\d{2}-\d{2}$/.test(String(o.ultimoContatoEm).trim())
+        ? String(o.ultimoContatoEm).trim()
+        : undefined,
+    proximoContatoEm:
+      o.proximoContatoEm != null && /^\d{4}-\d{2}-\d{2}$/.test(String(o.proximoContatoEm).trim())
+        ? String(o.proximoContatoEm).trim()
+        : undefined,
     valorNegocio:
       o.valorNegocio != null && Number.isFinite(Number(o.valorNegocio))
         ? Math.max(0, Number(o.valorNegocio))

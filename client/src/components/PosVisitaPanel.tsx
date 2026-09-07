@@ -251,7 +251,7 @@ export function PosVisitaPanel({ db, setDb, onRegistrarNaAgenda, currentUserId }
           id="heading-posvisita"
           className="text-2xl font-bold tracking-tighter italic text-brand-dark dark:text-white"
         >
-          Pós-<span className="text-brand-gold not-italic">visita</span>
+          Central de <span className="text-brand-gold not-italic">negócios</span>
         </h2>
         <p className="text-xs text-gray-500 dark:text-neutral-400 mt-1">
           Marque na agenda a visita como <strong className="text-brand-dark dark:text-white">Realizada</strong> para

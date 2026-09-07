@@ -16,6 +16,7 @@ type Props = {
   onNovaVisita: () => void;
   onNovoLead: () => void;
   onAbrirAgenda: () => void;
+  onAbrirCrm: () => void;
   onAbrirPosVisita: () => void;
 };
 
@@ -29,6 +30,7 @@ export function HomeExplore({
   onNovaVisita,
   onNovoLead,
   onAbrirAgenda,
+  onAbrirCrm,
   onAbrirPosVisita,
 }: Props) {
   const imoveis = db.imoveis;
@@ -130,13 +132,24 @@ export function HomeExplore({
             </button>
             <button type="button" onClick={onNovoLead} className="rounded-2xl bg-white/10 p-3 text-left hover:bg-white/15 transition-colors">
               <strong className="block text-2xl text-sky-300 tabular-nums">{snapshot.leadsAtivos}</strong>
-              <span className="text-[10px] font-bold uppercase text-white/65">Leads</span>
+              <span className="text-[10px] font-bold uppercase text-white/65">Leads ativos</span>
             </button>
             <button type="button" onClick={onAbrirPosVisita} className="rounded-2xl bg-white/10 p-3 text-left hover:bg-white/15 transition-colors">
               <strong className="block text-2xl text-violet-300 tabular-nums">{snapshot.vendasPendentes}</strong>
               <span className="text-[10px] font-bold uppercase text-white/65">Vendas pendentes</span>
             </button>
           </div>
+
+          {snapshot.contatosAtrasados > 0 ? (
+            <button
+              type="button"
+              onClick={onAbrirCrm}
+              className="w-full rounded-xl border border-red-300/25 bg-red-400/10 px-4 py-3 text-left text-xs text-red-100"
+            >
+              <strong>{snapshot.contatosAtrasados} contato{snapshot.contatosAtrasados === 1 ? '' : 's'} atrasado{snapshot.contatosAtrasados === 1 ? '' : 's'}</strong>
+              <span className="block text-[10px] text-red-100/65 mt-0.5">Abra o CRM para reorganizar os retornos.</span>
+            </button>
+          ) : null}
 
           <div className="grid grid-cols-3 gap-2">
             <button type="button" onClick={onNovaVisita} className="min-h-[46px] rounded-xl bg-emerald-500 text-xs font-black">+ Visita</button>
