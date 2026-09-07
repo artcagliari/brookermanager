@@ -206,6 +206,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
   const [iCidade, setICidade] = useState('');
   const [iPreco, setIPreco] = useState('');
   const [iQuartos, setIQuartos] = useState('3');
+  const [iBanheiros, setIBanheiros] = useState('2');
   const [iTipo, setITipo] = useState<TipoImovel>('Apartamento');
   const [iFotos, setIFotos] = useState<string[]>([]);
   const [iFotosLoading, setIFotosLoading] = useState(false);
@@ -249,6 +250,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
     setICidade('');
     setIPreco('');
     setIQuartos('3');
+    setIBanheiros('2');
     setITipo('Apartamento');
     setIFotos([]);
   }, []);
@@ -260,6 +262,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
     setICidade(m.cidade);
     setIPreco(String(m.preco || ''));
     setIQuartos(String(m.quartos));
+    setIBanheiros(String(m.banheiros));
     setITipo(m.tipo);
     setIFotos(m.fotos.length ? [...m.fotos] : []);
   }, []);
@@ -644,6 +647,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
       cidade,
       preco: parseBrlNumber(iPreco),
       quartos: Math.max(0, parseInt(iQuartos, 10) || 0),
+      banheiros: Math.max(0, parseInt(iBanheiros, 10) || 0),
       tipo: iTipo,
       fotos: [...iFotos],
     };
@@ -668,7 +672,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
       }));
     }
     setModalImovel(false);
-  }, [editImovelId, iEndereco, iBairro, iCidade, iPreco, iQuartos, iTipo, iFotos, effectiveOwnerUserId, setDb]);
+  }, [editImovelId, iEndereco, iBairro, iCidade, iPreco, iQuartos, iBanheiros, iTipo, iFotos, effectiveOwnerUserId, setDb]);
 
   const onPickImovelFotos = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -782,6 +786,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
         cidade: 'São Paulo',
         preco: 1850000,
         quartos: 4,
+        banheiros: 3,
         tipo: 'Apartamento',
         fotos: [
           'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=800&q=80&auto=format&fit=crop',
@@ -796,6 +801,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
         cidade: 'São Paulo',
         preco: 920000,
         quartos: 3,
+        banheiros: 2,
         tipo: 'Apartamento',
         fotos: [
           'https://images.unsplash.com/photo-1600585154526-990dced4db0d?w=800&q=80&auto=format&fit=crop',
@@ -810,6 +816,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
         cidade: 'São Paulo',
         preco: 2400000,
         quartos: 4,
+        banheiros: 4,
         tipo: 'Casa',
         fotos: [
           'https://images.unsplash.com/photo-1600566753086-00f18fb6b3ea?w=800&q=80&auto=format&fit=crop',
@@ -2400,7 +2407,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-neutral-500 ml-1">
                     Bairro
@@ -2410,6 +2417,19 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                     onChange={(e) => setIBairro(e.target.value)}
                     placeholder="Bairro"
                     className="mt-1 w-full p-4 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-2xl outline-none border-0 font-semibold min-h-[48px]"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-neutral-500 ml-1">
+                    Banheiros
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    value={iBanheiros}
+                    onChange={(e) => setIBanheiros(e.target.value)}
+                    className="mt-1 w-full p-4 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-2xl outline-none border-0 font-bold text-center min-h-[48px]"
                   />
                 </div>
                 <div>

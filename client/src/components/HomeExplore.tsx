@@ -278,7 +278,8 @@ export function HomeExplore({
                   </p>
                   <p className="text-lg font-black text-hz-green">{formatBrlFull(m.preco)}</p>
                   <p className="text-[11px] text-gray-400 dark:text-neutral-500 mt-1 font-semibold">
-                    {m.quartos} quarto{m.quartos === 1 ? '' : 's'}
+                    {m.quartos} quarto{m.quartos === 1 ? '' : 's'} · {m.banheiros} banheiro
+                    {m.banheiros === 1 ? '' : 's'}
                   </p>
                 </div>
               </button>
@@ -405,6 +406,7 @@ export function HomeExplore({
                 <p className="text-hz-green font-black">{formatBrlFull(m.preco)}</p>
                 <ul className="text-xs text-gray-600 dark:text-neutral-300 space-y-1">
                   <li>{m.quartos} quarto{m.quartos === 1 ? '' : 's'}</li>
+                  <li>{m.banheiros} banheiro{m.banheiros === 1 ? '' : 's'}</li>
                   <li className="text-[10px] uppercase font-bold text-gray-400 dark:text-neutral-500">
                     {normalizeTipoImovel(m.tipo)}
                   </li>
@@ -505,11 +507,19 @@ export function HomeExplore({
                 {detalhe.cidade ? ` · ${detalhe.cidade}` : ''}
               </p>
               <p className="text-2xl font-black text-hz-green">{formatBrlFull(detalhe.preco)}</p>
-              <div className="rounded-xl bg-gray-50 dark:bg-neutral-800 p-4 text-sm">
-                <p className="text-[10px] uppercase font-bold text-gray-400 dark:text-neutral-500 mb-1">
-                  Quartos
-                </p>
-                <p className="font-bold text-lg dark:text-white">{detalhe.quartos}</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl bg-gray-50 dark:bg-neutral-800 p-4 text-sm">
+                  <p className="text-[10px] uppercase font-bold text-gray-400 dark:text-neutral-500 mb-1">
+                    Quartos
+                  </p>
+                  <p className="font-bold text-lg dark:text-white">{detalhe.quartos}</p>
+                </div>
+                <div className="rounded-xl bg-gray-50 dark:bg-neutral-800 p-4 text-sm">
+                  <p className="text-[10px] uppercase font-bold text-gray-400 dark:text-neutral-500 mb-1">
+                    Banheiros
+                  </p>
+                  <p className="font-bold text-lg dark:text-white">{detalhe.banheiros}</p>
+                </div>
               </div>
               <button
                 type="button"

@@ -74,6 +74,7 @@ export type Imovel = {
   cidade: string;
   preco: number;
   quartos: number;
+  banheiros: number;
   tipo: TipoImovel;
   fotos: string[];
   favorito: boolean;
@@ -241,6 +242,7 @@ function coerceImovel(x: unknown): Imovel | null {
     cidade: String(o.cidade ?? ''),
     preco: Number(o.preco) || 0,
     quartos: Math.max(0, Number(o.quartos) || 0),
+    banheiros: Math.max(0, Number(o.banheiros) || 0),
     tipo,
     fotos,
     favorito: Boolean(o.favorito),
