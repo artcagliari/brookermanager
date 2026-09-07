@@ -63,6 +63,7 @@ export function PosVisitaPanel({ db, setDb, onRegistrarNaAgenda, currentUserId }
   const [agendaModal, setAgendaModal] = useState<VendaCheckin | null>(null);
   const [agendaHora, setAgendaHora] = useState('10:00');
   const [aba, setAba] = useState<'venda' | 'comissao'>('venda');
+  const [visitaAbertaId, setVisitaAbertaId] = useState<number | null>(null);
 
   const imoveisVendidosIds = useMemo(() => new Set(vendas.map((v) => v.imovelId)), [vendas]);
 
@@ -545,63 +546,91 @@ export function PosVisitaPanel({ db, setDb, onRegistrarNaAgenda, currentUserId }
             Nenhuma visita nesta fase. Marque uma visita como <strong>Realizada</strong> na Agenda.
           </p>
         ) : (
-          <ul className="space-y-4 max-h-[min(420px,50vh)] overflow-y-auto pr-1">
-            {visitasFollowUp.map((v) => (
-              <li
-                key={v.id}
-                className="rounded-2xl border border-gray-100 dark:border-neutral-800 p-4 space-y-2 bg-gray-50/50 dark:bg-neutral-800/30"
-              >
-                <div className="flex flex-wrap justify-between gap-2">
-                  <p className="font-bold text-sm text-brand-dark dark:text-white">{v.cliente}</p>
-                  <span className="text-[11px] text-gray-500">
-                    {(v.data ?? '')} {v.hora}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-600 dark:text-neutral-300 bg-white/60 dark:bg-neutral-900/40 rounded-lg p-2.5 border border-gray-100 dark:border-neutral-700 leading-snug">
-                  <span className="font-bold text-emerald-700 dark:text-emerald-400">Resumo automático: </span>
-                  {resumoConversa(v)}
-                </p>
-                <label className="text-[9px] font-black uppercase text-gray-400">Notas (como foi a visita)</label>
-                <textarea
-                  value={v.notasVisita ?? ''}
-                  onChange={(e) => patchVisita(v.id, { notasVisita: e.target.value || undefined })}
-                  placeholder="Ex.: cliente gostou da localização e pediu uma segunda visita…"
-                  rows={3}
-                  className="w-full p-3 rounded-xl bg-white dark:bg-neutral-800 dark:text-white border border-gray-200 dark:border-neutral-700 text-sm resize-y min-h-[72px]"
-                />
-                <label className="text-[9px] font-black uppercase text-gray-400">Proposta</label>
-                <textarea
-                  value={v.propostaVisita ?? ''}
-                  onChange={(e) => patchVisita(v.id, { propostaVisita: e.target.value || undefined })}
-                  placeholder="Ex.: R$ 780.000, entrada de R$ 200.000 e saldo financiado…"
-                  rows={3}
-                  className="w-full p-3 rounded-xl bg-white dark:bg-neutral-800 dark:text-white border border-gray-200 dark:border-neutral-700 text-sm resize-y min-h-[72px]"
-                />
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+          <ul className="space-y-2 max-h-[min(520px,60vh)] overflow-y-auto pr-1">
+            {visitasFollowUp.map((v) => {
+              const aberta = visitaAbertaId === v.id;
+              return (
+                <li
+                  key={v.id}
+                  className="rounded-2xl border border-gray-100 dark:border-neutral-800 bg-gray-50/50 dark:bg-neutral-800/30 overflow-hidden"
+                >
                   <button
                     type="button"
-                    onClick={() => patchVisita(v.id, { funilEstado: 'realizada' })}
-                    className="min-h-[44px] rounded-xl bg-emerald-600 text-white text-xs font-black"
+                    onClick={() => setVisitaAbertaId(aberta ? null : v.id)}
+                    className="w-full p-4 flex items-center justify-between gap-3 text-left"
+                    aria-expanded={aberta}
                   >
-                    Salvar realizada
+                    <span className="min-w-0">
+                      <span className="block font-bold text-sm text-brand-dark dark:text-white truncate">{v.cliente}</span>
+                      <span className="block text-[11px] text-gray-500 mt-0.5">
+                        {(v.data ?? '')} {v.hora} · {v.funilEstado === 'proposta' ? 'Proposta' : 'Realizada'}
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-2 shrink-0">
+                      {(v.notasVisita ?? '').trim() ? <span className="text-emerald-600 text-xs">✓ notas</span> : null}
+                      {(v.propostaVisita ?? '').trim() ? <span className="text-brand-gold text-xs">✓ proposta</span> : null}
+                      <span className="text-gray-400 text-lg" aria-hidden>{aberta ? '−' : '+'}</span>
+                    </span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => patchVisita(v.id, { funilEstado: 'proposta' })}
-                    className="min-h-[44px] rounded-xl bg-brand-gold text-white text-xs font-black"
-                  >
-                    Marcar proposta
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => patchVisita(v.id, { funilEstado: 'cancelada' })}
-                    className="min-h-[44px] rounded-xl border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 text-xs font-black"
-                  >
-                    Cancelar visita
-                  </button>
-                </div>
-              </li>
-            ))}
+                  {aberta ? (
+                    <div className="border-t border-gray-100 dark:border-neutral-700 p-4 space-y-2">
+                      <p className="text-xs text-gray-600 dark:text-neutral-300 bg-white/60 dark:bg-neutral-900/40 rounded-lg p-2.5 border border-gray-100 dark:border-neutral-700 leading-snug">
+                        <span className="font-bold text-emerald-700 dark:text-emerald-400">Resumo: </span>
+                        {resumoConversa(v)}
+                      </p>
+                      <label className="text-[9px] font-black uppercase text-gray-400">Como foi a visita</label>
+                      <textarea
+                        value={v.notasVisita ?? ''}
+                        onChange={(e) => patchVisita(v.id, { notasVisita: e.target.value || undefined })}
+                        placeholder="Ex.: cliente gostou da localização e pediu uma segunda visita…"
+                        rows={3}
+                        className="w-full p-3 rounded-xl bg-white dark:bg-neutral-800 dark:text-white border border-gray-200 dark:border-neutral-700 text-sm resize-y min-h-[72px]"
+                      />
+                      <label className="text-[9px] font-black uppercase text-gray-400">Proposta</label>
+                      <textarea
+                        value={v.propostaVisita ?? ''}
+                        onChange={(e) => patchVisita(v.id, { propostaVisita: e.target.value || undefined })}
+                        placeholder="Ex.: R$ 780.000, entrada de R$ 200.000 e saldo financiado…"
+                        rows={3}
+                        className="w-full p-3 rounded-xl bg-white dark:bg-neutral-800 dark:text-white border border-gray-200 dark:border-neutral-700 text-sm resize-y min-h-[72px]"
+                      />
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            patchVisita(v.id, { funilEstado: 'realizada' });
+                            setVisitaAbertaId(null);
+                          }}
+                          className="min-h-[44px] rounded-xl bg-emerald-600 text-white text-xs font-black"
+                        >
+                          Salvar realizada
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            patchVisita(v.id, { funilEstado: 'proposta' });
+                            setVisitaAbertaId(null);
+                          }}
+                          className="min-h-[44px] rounded-xl bg-brand-gold text-white text-xs font-black"
+                        >
+                          Marcar proposta
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            patchVisita(v.id, { funilEstado: 'cancelada' });
+                            setVisitaAbertaId(null);
+                          }}
+                          className="min-h-[44px] rounded-xl border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 text-xs font-black"
+                        >
+                          Cancelar visita
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
