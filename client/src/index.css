@@ -106,6 +106,53 @@ html.dark .skip-link:focus {
   }
 }
 
+@layer components {
+  .admin-page {
+    @apply min-h-[100dvh] bg-gradient-to-b from-hz-cream via-white to-hz-sand text-hz-ink;
+    @apply dark:from-neutral-950 dark:via-neutral-950 dark:to-neutral-900 dark:text-neutral-100;
+  }
+
+  .admin-card {
+    @apply overflow-hidden rounded-2xl border border-gray-200/90 bg-white shadow-sm;
+    @apply dark:border-neutral-800 dark:bg-neutral-900 dark:shadow-black/20;
+  }
+
+  .admin-field {
+    @apply min-h-[50px] min-w-0 w-full rounded-xl border border-white/20 bg-white/10 px-4;
+    @apply text-base text-white placeholder:text-white/40 outline-none transition-colors;
+    @apply hover:border-white/30 focus:border-emerald-400 focus:bg-white/[0.14];
+  }
+
+  .admin-field-label {
+    @apply mb-1.5 block text-[10px] font-black uppercase tracking-[0.12em] text-white/55;
+  }
+
+  .admin-primary-button {
+    @apply min-h-[46px] rounded-xl bg-emerald-600 px-4 text-sm font-black text-white;
+    @apply transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .admin-secondary-button {
+    @apply min-h-[40px] rounded-xl border border-gray-200 bg-white px-3 text-xs font-black text-gray-700;
+    @apply transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800;
+  }
+
+  .admin-danger-button {
+    @apply min-h-[40px] rounded-xl border border-red-200 bg-red-50 px-3 text-xs font-black text-red-700;
+    @apply transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply dark:border-red-900/80 dark:bg-red-950/20 dark:text-red-400 dark:hover:bg-red-950/40;
+  }
+
+  .admin-message-error {
+    @apply rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-100;
+  }
+
+  .admin-message-success {
+    @apply rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm font-semibold text-emerald-200;
+  }
+}
+
 @media print {
   body {
     background: white !important;

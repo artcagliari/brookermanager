@@ -4,8 +4,10 @@ node_modules/
 !**/.env.example
 data/
 
-# SQL Supabase local (setup versionado em scripts/)
-/supabase/
+# Configuração local do Supabase; as Edge Functions são código versionado.
+/supabase/*
+!/supabase/functions/
+!/supabase/functions/**
 # Nunca versionar seeds ou SQL com credenciais
 scripts/*seed*.sql
 **/supabase_seed*.sql

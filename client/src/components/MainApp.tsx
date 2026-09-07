@@ -1088,7 +1088,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
               }
             >
               <span className="uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-                {profile.role === 'empresa' ? 'Empresa' : 'Corretor'}
+                {profile.role === 'empresa' ? 'Master da empresa' : 'Corretor'}
               </span>
               {profile.nome_exibicao ? ` · ${profile.nome_exibicao}` : ''}
               {userEmail ? (

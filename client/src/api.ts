@@ -4,24 +4,109 @@ import { assertSupabase, getSupabase } from './lib/supabase';
 
 export type BrokerProfile = {
   id: string;
-  empresa_id: string;
-  role: 'empresa' | 'corretor';
+  empresa_id: string | null;
+  role: 'superadmin' | 'empresa' | 'corretor';
   nome_exibicao: string | null;
 };
 
 function mapProfileRow(row: {
   id: string;
-  empresa_id: string;
+  empresa_id: string | null;
   role: string;
   nome_exibicao: string | null;
 }): BrokerProfile {
-  const role = row.role === 'empresa' || row.role === 'corretor' ? row.role : 'corretor';
+  const role =
+    row.role === 'superadmin' || row.role === 'empresa' || row.role === 'corretor'
+      ? row.role
+      : 'corretor';
   return {
     id: row.id,
     empresa_id: row.empresa_id,
     role,
     nome_exibicao: row.nome_exibicao,
   };
+}
+
+export type RegisteredEmpresa = {
+  id: string;
+  nome: string;
+  created_at: string | null;
+  logins: RegisteredLogin[];
+};
+
+export type RegisteredLogin = {
+  id: string;
+  email: string;
+  nome_exibicao: string | null;
+  role: 'empresa' | 'corretor';
+};
+
+type CreateLoginInput = {
+  loginName: string;
+  email: string;
+  password: string;
+  role: 'empresa' | 'corretor';
+};
+
+async function invokeSuperAdmin<T>(body: Record<string, unknown>): Promise<T> {
+  const sb = assertSupabase();
+  const { data, error } = await sb.functions.invoke('superadmin-admin', { body });
+  if (error) {
+    let message = error.message;
+    const context = (error as { context?: unknown }).context;
+    if (context instanceof Response) {
+      try {
+        const payload = (await context.json()) as { error?: string };
+        if (payload.error) message = payload.error;
+      } catch {
+        // Mantém a mensagem do cliente Supabase.
+      }
+    }
+    throw new Error(message);
+  }
+  const payload = data as T & { error?: string };
+  if (payload?.error) throw new Error(payload.error);
+  return payload;
+}
+
+/** Lista dados cadastrais e logins; o payload do CRM nunca é consultado. */
+export async function fetchRegisteredEmpresas(): Promise<RegisteredEmpresa[]> {
+  const data = await invokeSuperAdmin<{ companies: RegisteredEmpresa[] }>({ action: 'list' });
+  return data.companies;
+}
+
+export async function registerEmpresa(input: {
+  companyName: string;
+  loginName: string;
+  email: string;
+  password: string;
+  role: 'empresa' | 'corretor';
+}): Promise<RegisteredEmpresa> {
+  const data = await invokeSuperAdmin<{ company: RegisteredEmpresa }>({
+    action: 'create_company',
+    ...input,
+  });
+  return data.company;
+}
+
+export async function createEmpresaLogin(
+  companyId: string,
+  input: CreateLoginInput
+): Promise<RegisteredLogin> {
+  const data = await invokeSuperAdmin<{ login: RegisteredLogin }>({
+    action: 'create_login',
+    companyId,
+    ...input,
+  });
+  return data.login;
+}
+
+export async function deleteEmpresaLogin(userId: string): Promise<void> {
+  await invokeSuperAdmin<{ ok: true }>({ action: 'delete_login', userId });
+}
+
+export async function deleteRegisteredEmpresa(companyId: string): Promise<void> {
+  await invokeSuperAdmin<{ ok: true }>({ action: 'delete_company', companyId });
 }
 
 export async function fetchProfileForUser(userId: string): Promise<BrokerProfile> {

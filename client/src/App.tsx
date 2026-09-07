@@ -5,6 +5,7 @@ import type { BrokerProfile } from './api';
 import { APP_KICKER_APP, APP_NAME } from './branding';
 import { LoginScreen } from './components/LoginScreen';
 import { MainApp } from './components/MainApp';
+import { SuperAdminPanel } from './components/SuperAdminPanel';
 import { getSupabase } from './lib/supabase';
 import { emptyDb, normalizeDb, type BrokerDb } from './types';
 
@@ -40,6 +41,15 @@ export default function App() {
       if (myGen !== bootGen.current) return;
       setProfile(p);
       setEmpresaId(p.empresa_id);
+      if (p.role === 'superadmin') {
+        setDb(emptyDb());
+        setBootReady(true);
+        skipNextPersist.current = true;
+        return;
+      }
+      if (!p.empresa_id) {
+        throw new Error('O perfil não está associado a uma imobiliária.');
+      }
       const d = await fetchData(p.empresa_id);
       if (myGen !== bootGen.current) return;
       setDb(normalizeDb(d));
@@ -175,6 +185,10 @@ export default function App() {
         </div>
       </div>
     );
+  }
+
+  if (bootReady && profile?.role === 'superadmin') {
+    return <SuperAdminPanel profile={profile} onLogout={handleLogout} />;
   }
 
   if (!bootReady || !profile || !empresaId) {

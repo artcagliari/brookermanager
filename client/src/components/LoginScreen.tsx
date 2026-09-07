@@ -158,8 +158,9 @@ export function LoginScreen() {
         </form>
 
         <p className="w-full mt-8 text-center text-white/40 text-xs leading-relaxed px-2">
-          Contas criadas pelo administrador no Supabase (persona <strong className="text-white/60">empresa</strong> ou{' '}
-          <strong className="text-white/60">corretor</strong>). Não há registo público.
+          Contas criadas pelo administrador: <strong className="text-white/60">master da empresa</strong>,{' '}
+          <strong className="text-white/60">corretor</strong> ou <strong className="text-white/60">superadmin</strong>.
+          Não há cadastro público.
         </p>
       </main>
     </div>
