@@ -37,7 +37,14 @@ import { todayISODate, visitaSortKey } from '../lib/datetimeAgenda';
 import { googleMapsDirectionsUrl } from '../lib/mapsRoute';
 import { matchImoveisParaCliente } from '../lib/matchImoveis';
 import { msgLembrete24h, msgLembrete2h, msgPosVisita, whatsappLink } from '../lib/whatsappTemplates';
-import { filterDbForOwner } from '../lib/brokerWorkflow';
+import {
+  CRM_STAGE_LABEL,
+  CRM_STAGE_ORDER,
+  filterDbForOwner,
+  getClientCrmStage,
+  getCrmStageCounts,
+  type ClientCrmStage,
+} from '../lib/brokerWorkflow';
 import { AgendaAssistantChat } from './AgendaAssistantChat';
 import { HomeExplore } from './HomeExplore';
 import { ImovelSearchPicker } from './ImovelSearchPicker';
@@ -62,6 +69,14 @@ const ABAS_AGENDA: { value: 'todas' | FunilVisita; label: string }[] = [
   { value: 'proposta', label: 'Propostas' },
   { value: 'cancelada', label: 'Canceladas' },
 ];
+
+const CRM_STAGE_STYLE: Record<ClientCrmStage, string> = {
+  lead: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200',
+  visita: 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300',
+  pos_visita: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300',
+  proposta: 'bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300',
+  venda: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300',
+};
 
 /** Para ordenar/filtrar; leads antigos sem campo usam data inferida do `id` (timestamp) ou 1970-01-01. */
 function dataCadastroEfetiva(c: Cliente): string {
@@ -134,6 +149,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
   const [agendaBusca, setAgendaBusca] = useState('');
   const [agendaEtapa, setAgendaEtapa] = useState<'todas' | FunilVisita>('todas');
   const [leadsBusca, setLeadsBusca] = useState('');
+  const [crmEtapa, setCrmEtapa] = useState<'todas' | ClientCrmStage>('todas');
   const [leadsCadastroDe, setLeadsCadastroDe] = useState('');
   const [leadsCadastroAte, setLeadsCadastroAte] = useState('');
 
@@ -325,6 +341,24 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
     setVImovelId(undefined);
     setModalVisita(true);
   }, []);
+
+  const openNovaVisitaForCliente = useCallback(
+    (cliente: Cliente) => {
+      openNovaVisita();
+      setVCliente(clienteAgendaLabel(cliente));
+      setVClienteId(cliente.id);
+      const imovel =
+        cliente.imovelInteresseId != null
+          ? db.imoveis.find((item) => item.id === cliente.imovelInteresseId)
+          : undefined;
+      if (imovel) {
+        setVImovelId(imovel.id);
+        setVEndereco(enderecoParaVisitaDeImovel(imovel));
+      }
+      setSection('agenda');
+    },
+    [db.imoveis, openNovaVisita]
+  );
 
   const openEditVisita = useCallback((v: Visita) => {
     setEditVisitaId(v.id);
@@ -933,6 +967,10 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
     const t = leadsBusca.trim().toLowerCase();
     let list = [...dbVisao.clientes];
 
+    if (crmEtapa !== 'todas') {
+      list = list.filter((cliente) => getClientCrmStage(dbVisao, cliente) === crmEtapa);
+    }
+
     if (t) {
       list = list.filter((c) => {
         const im =
@@ -973,7 +1011,9 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
     });
 
     return list;
-  }, [dbVisao.clientes, db.imoveis, leadsBusca, leadsCadastroDe, leadsCadastroAte]);
+  }, [dbVisao, db.imoveis, leadsBusca, leadsCadastroDe, leadsCadastroAte, crmEtapa]);
+
+  const crmStageCounts = useMemo(() => getCrmStageCounts(dbVisao), [dbVisao]);
 
   const visitasHojePainel = useMemo(
     () => dbVisao.visitas.filter((v) => v.data === todayISODate() && v.funilEstado !== 'cancelada'),
@@ -1005,7 +1045,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
       ['agenda', 'Agenda', 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z'],
       [
         'clientes',
-        'Leads',
+        'CRM',
         'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z',
       ],
       ['calc', 'Simular', 'M9 7h6m0 10v-3m-3 3h.01M9 17h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z'],
@@ -1595,16 +1635,64 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                 id="heading-leads"
                 className="text-2xl font-bold tracking-tighter italic text-brand-dark dark:text-white"
               >
-                Gestão <br />
-                <span className="text-brand-gold not-italic">Leads</span>
+                CRM <br />
+                <span className="text-brand-gold not-italic">Comercial</span>
               </h2>
               <button
                 type="button"
                 onClick={openNovoCliente}
                 className="bg-brand-dark text-white px-5 py-3 rounded-2xl text-xs font-bold shadow-lg shadow-black/20 shrink-0"
               >
-                + Novo
+                + Novo lead
               </button>
+            </div>
+            <div className="rounded-[1.5rem] border border-gray-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-3">
+              <div className="flex items-center justify-between gap-3 px-1 pb-3">
+                <div>
+                  <p className="text-xs font-black text-brand-dark dark:text-white">Funil comercial</p>
+                  <p className="text-[10px] text-gray-500 dark:text-neutral-400 mt-0.5">Etapas atualizadas pelas visitas e vendas</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCrmEtapa('todas')}
+                  className={`shrink-0 rounded-xl px-3 py-2 text-[10px] font-black uppercase ${
+                    crmEtapa === 'todas'
+                      ? 'bg-brand-dark text-brand-gold'
+                      : 'bg-gray-100 dark:bg-neutral-800 text-gray-500 dark:text-neutral-300'
+                  }`}
+                >
+                  Todos {dbVisao.clientes.length}
+                </button>
+              </div>
+              <div className="grid grid-cols-5 gap-1.5 overflow-x-auto" role="tablist" aria-label="Etapas do CRM">
+                {CRM_STAGE_ORDER.map((etapa, index) => {
+                  const active = crmEtapa === etapa;
+                  return (
+                    <button
+                      key={etapa}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => setCrmEtapa(etapa)}
+                      className={`relative min-w-[6.4rem] min-h-[72px] rounded-xl p-2.5 text-left border transition-colors ${
+                        active
+                          ? 'border-brand-gold ring-2 ring-brand-gold/20 bg-brand-gold/5'
+                          : 'border-gray-100 dark:border-neutral-800 bg-gray-50/70 dark:bg-neutral-800/50'
+                      }`}
+                    >
+                      <span className={`inline-flex h-6 min-w-6 items-center justify-center rounded-lg px-1.5 text-[10px] font-black ${CRM_STAGE_STYLE[etapa]}`}>
+                        {crmStageCounts[etapa]}
+                      </span>
+                      <span className="block text-[9px] font-black uppercase leading-tight text-brand-dark dark:text-neutral-200 mt-2">
+                        {CRM_STAGE_LABEL[etapa]}
+                      </span>
+                      {index < CRM_STAGE_ORDER.length - 1 ? (
+                        <span className="absolute -right-2 top-1/2 z-10 hidden sm:block text-gray-300 dark:text-neutral-600" aria-hidden>›</span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             <div>
               <label
@@ -1617,15 +1705,17 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                 id="leads-busca"
                 value={leadsBusca}
                 onChange={(e) => setLeadsBusca(e.target.value)}
-                placeholder="Pesquisar leads (nome, telefone, imóvel ligado…)"
+                placeholder="Pesquisar no CRM por nome, telefone ou imóvel…"
                 autoComplete="off"
                 className="w-full min-h-[48px] p-4 rounded-2xl bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-700 text-sm font-semibold text-hz-ink dark:text-white placeholder:text-gray-400 dark:placeholder:text-neutral-500"
               />
             </div>
-            <div className="rounded-2xl border border-gray-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4 space-y-3">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-neutral-400">
-                Filtrar por data de cadastro
-              </p>
+            <details className="rounded-2xl border border-gray-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 group">
+              <summary className="cursor-pointer list-none p-4 text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-neutral-400 flex justify-between gap-3">
+                Filtros por data
+                <span className="group-open:rotate-180 transition-transform">⌄</span>
+              </summary>
+              <div className="border-t border-gray-100 dark:border-neutral-800 p-4 space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label
@@ -1703,18 +1793,20 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                   Limpar datas
                 </button>
               </div>
-            </div>
+              </div>
+            </details>
             <div className="space-y-4">
               {clientesFiltrados.length === 0 ? (
                 <p className="text-center text-sm text-gray-500 dark:text-neutral-400 py-8">
-                  {leadsBusca.trim() || leadsCadastroDe.trim() || leadsCadastroAte.trim()
-                    ? 'Nenhum lead corresponde aos filtros.'
+                  {leadsBusca.trim() || leadsCadastroDe.trim() || leadsCadastroAte.trim() || crmEtapa !== 'todas'
+                    ? 'Nenhum cliente corresponde aos filtros do CRM.'
                     : 'Nenhum lead ainda.'}
                 </p>
               ) : null}
               {clientesFiltrados.map((c) => {
                 const digits = onlyDigits(c.fone);
                 const wa = digits ? whatsappLink(c.fone, '') : null;
+                const crmStage = getClientCrmStage(dbVisao, c);
                 const matches = matchImoveisParaCliente(c, db.imoveis).slice(0, 2);
                 const imLead =
                   c.imovelInteresseId != null
@@ -1723,11 +1815,14 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                 return (
                   <div
                     key={c.id}
-                    className="bg-white dark:bg-neutral-900 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-neutral-800 flex justify-between items-center gap-3"
+                    className="bg-white dark:bg-neutral-900 rounded-2xl shadow-sm border border-gray-100 dark:border-neutral-800 overflow-hidden"
                   >
-                    <div className="min-w-0">
+                    <div className="p-4 min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <h4 className="font-black text-lg truncate dark:text-white">{c.nome}</h4>
+                        <span className={`text-[9px] px-2.5 py-1 rounded-full font-black uppercase shrink-0 ${CRM_STAGE_STYLE[crmStage]}`}>
+                          {CRM_STAGE_LABEL[crmStage]}
+                        </span>
                         <span className="text-[8px] bg-brand-gold/10 text-brand-gold px-2 py-0.5 rounded-full font-black uppercase shrink-0">
                           {c.status}
                         </span>
@@ -1769,32 +1864,41 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                         </p>
                       ) : null}
                     </div>
-                    <div className="flex gap-2 shrink-0">
+                    <div className="flex flex-wrap items-center gap-2 px-4 py-3 bg-gray-50/80 dark:bg-neutral-800/40 border-t border-gray-100 dark:border-neutral-800">
+                      {crmStage !== 'venda' ? (
+                        <button
+                          type="button"
+                          onClick={() => openNovaVisitaForCliente(c)}
+                          className="min-h-[40px] px-3.5 rounded-xl bg-brand-dark text-brand-gold font-black text-[10px] uppercase"
+                        >
+                          + Agendar visita
+                        </button>
+                      ) : null}
                       {wa ? (
                         <a
                           href={wa}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="bg-brand-success px-3 py-3 rounded-2xl text-white shadow-lg shadow-brand-success/20 font-black text-[10px] touch-manipulation"
+                          className="inline-flex min-h-[40px] items-center bg-brand-success px-3.5 rounded-xl text-white font-black text-[10px] touch-manipulation"
                         >
-                          WHATS
+                          WhatsApp
                         </a>
                       ) : (
-                        <span className="p-3 text-gray-300 text-[10px]">—</span>
+                        <span className="inline-flex min-h-[40px] items-center px-3 text-gray-400 text-[10px]">Sem telefone</span>
                       )}
                       <button
                         type="button"
                         onClick={() => openEditCliente(c)}
-                        className="p-3 bg-gray-50 dark:bg-neutral-800 text-gray-400 dark:text-neutral-400 rounded-2xl touch-manipulation"
+                        className="min-h-[40px] px-3.5 bg-white dark:bg-neutral-800 text-gray-600 dark:text-neutral-300 rounded-xl border border-gray-200 dark:border-neutral-700 touch-manipulation text-[10px] font-bold"
                       >
-                        📝
+                        Editar
                       </button>
                       <button
                         type="button"
                         onClick={() => remover('clientes', c.id)}
-                        className="p-3 bg-gray-50 dark:bg-neutral-800 text-red-300 dark:text-red-400 rounded-2xl font-bold touch-manipulation"
+                        className="ml-auto min-h-[40px] px-3 bg-transparent text-red-400 dark:text-red-400 rounded-xl font-bold touch-manipulation text-[10px]"
                       >
-                        ×
+                        Excluir
                       </button>
                     </div>
                   </div>

@@ -1,4 +1,4 @@
-import type { BrokerDb, FunilVisita, VendaCheckin, Visita } from '../types';
+import type { BrokerDb, Cliente, FunilVisita, VendaCheckin, Visita } from '../types';
 import { comissaoTotalConfirmada, valorComissaoVenda, vgvTotalConfirmado } from '../types';
 import { todayISODate } from './datetimeAgenda';
 
@@ -29,6 +29,66 @@ export const VISIT_STATUS_LABEL: Record<FunilVisita, string> = {
   proposta: 'Proposta',
   cancelada: 'Cancelada',
 };
+
+export type ClientCrmStage = 'lead' | 'visita' | 'pos_visita' | 'proposta' | 'venda';
+
+export const CRM_STAGE_LABEL: Record<ClientCrmStage, string> = {
+  lead: 'Lead',
+  visita: 'Visita agendada',
+  pos_visita: 'Pós-visita',
+  proposta: 'Proposta',
+  venda: 'Venda',
+};
+
+export const CRM_STAGE_ORDER: ClientCrmStage[] = [
+  'lead',
+  'visita',
+  'pos_visita',
+  'proposta',
+  'venda',
+];
+
+function visitBelongsToClient(visita: Visita, cliente: Cliente): boolean {
+  if (visita.clienteId != null) return visita.clienteId === cliente.id;
+  const visitaNome = (visita.cliente.split('(')[0] ?? '').trim().toLocaleLowerCase('pt-BR');
+  return Boolean(visitaNome && visitaNome === cliente.nome.trim().toLocaleLowerCase('pt-BR'));
+}
+
+/**
+ * A etapa do CRM vem dos acontecimentos reais, não de um seletor manual que pode ficar desatualizado.
+ * Uma visita cancelada não encerra o lead: ele volta à etapa Lead até existir nova atividade.
+ */
+export function getClientCrmStage(db: BrokerDb, cliente: Cliente): ClientCrmStage {
+  const visitas = db.visitas.filter((visita) => visitBelongsToClient(visita, cliente));
+  const visitaIds = new Set(visitas.map((visita) => visita.id));
+  const vendas = db.vendasCheckin ?? [];
+  if (
+    vendas.some(
+      (venda) =>
+        venda.clienteId === cliente.id ||
+        (venda.visitaId != null && visitaIds.has(venda.visitaId))
+    )
+  ) {
+    return 'venda';
+  }
+
+  if (visitas.some((visita) => visita.funilEstado === 'proposta')) return 'proposta';
+  if (visitas.some((visita) => visita.funilEstado === 'realizada')) return 'pos_visita';
+  if (visitas.some((visita) => (visita.funilEstado ?? 'agendada') === 'agendada')) return 'visita';
+  return 'lead';
+}
+
+export function getCrmStageCounts(db: BrokerDb): Record<ClientCrmStage, number> {
+  const counts: Record<ClientCrmStage, number> = {
+    lead: 0,
+    visita: 0,
+    pos_visita: 0,
+    proposta: 0,
+    venda: 0,
+  };
+  for (const cliente of db.clientes) counts[getClientCrmStage(db, cliente)] += 1;
+  return counts;
+}
 
 export function getBrokerSnapshot(db: BrokerDb, today = todayISODate()) {
   const vendas = db.vendasCheckin ?? [];
