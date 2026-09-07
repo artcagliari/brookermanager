@@ -53,7 +53,7 @@ async function invokeSuperAdmin<T>(body: Record<string, unknown>): Promise<T> {
   const {
     data: { session },
     error: sessionError,
-  } = await sb.auth.getSession();
+  } = await sb.auth.refreshSession();
   if (sessionError) throw new Error(sessionError.message);
   if (!session?.access_token) {
     throw new Error('A sessão expirou. Saia e entre novamente para continuar.');
