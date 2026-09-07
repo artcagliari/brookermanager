@@ -67,7 +67,7 @@ O perfil `superadmin` abre um painel administrativo separado. Ele pode cadastrar
 Os nomes apresentados na interface correspondem aos valores do schema:
 
 - **Master da empresa** (`role = 'empresa'`): vê todos os registros da imobiliária, a equipe e pode abrir a visão de cada corretor.
-- **Corretor** (`role = 'corretor'`): a interface mostra somente registros cujo `ownerUserId` corresponde ao seu usuário.
+- **Corretor** (`role = 'corretor'`): vê o catálogo de imóveis da imobiliária e somente os próprios leads, visitas, tarefas e vendas.
 - **Superadmin** (`role = 'superadmin'`): administra imobiliárias e logins, sem entrar no CRM.
 
 1. Execute a seção `011` de `scripts/supabase_schema.sql` no SQL Editor.

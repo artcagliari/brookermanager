@@ -29,7 +29,7 @@ function loginRoleLabel(role: 'empresa' | 'corretor') {
 function loginRoleDescription(role: 'empresa' | 'corretor') {
   return role === 'empresa'
     ? 'Vê todos os dados da imobiliária e a equipe.'
-    : 'Vê somente os registros atribuídos ao próprio login.';
+    : 'Vê os imóveis da imobiliária e somente os próprios registros de CRM.';
 }
 
 type CompanyCardProps = {

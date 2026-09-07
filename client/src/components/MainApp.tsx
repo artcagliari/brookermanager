@@ -111,8 +111,8 @@ function ownerMatch(rowOwner: string | undefined, userId: string): boolean {
 }
 
 /**
- * Vista por utilizador: linhas com `ownerUserId` igual ao escolhido.
- * Imóveis **sem** `ownerUserId` (legado) mas ligados a uma **visita** deste utilizador também aparecem no Início.
+ * Vista por utilizador: CRM pessoal filtrado por `ownerUserId`.
+ * O catálogo de imóveis pertence à imobiliária e é compartilhado por toda a equipe.
  */
 function filterBrokerDbForOwnerView(d: BrokerDb, ownerId: string): BrokerDb {
   const oid = ownerId.trim();
@@ -122,23 +122,11 @@ function filterBrokerDbForOwnerView(d: BrokerDb, ownerId: string): BrokerDb {
   const tarefas = d.tarefas.filter((t) => ownerMatch(t.ownerUserId, oid));
   const vendasCheckin = (d.vendasCheckin ?? []).filter((v) => ownerMatch(v.ownerUserId, oid));
 
-  const imovelIdsDasMinhasVisitas = new Set(
-    visitas
-      .filter((v) => v.imovelId != null && Number.isFinite(v.imovelId))
-      .map((v) => v.imovelId as number)
-  );
-
-  const imoveis = d.imoveis.filter((m) => {
-    if (ownerMatch(m.ownerUserId, oid)) return true;
-    const semDono = !m.ownerUserId || !String(m.ownerUserId).trim();
-    return Boolean(semDono && imovelIdsDasMinhasVisitas.has(m.id));
-  });
-
   return {
     ...d,
     visitas,
     clientes,
-    imoveis,
+    imoveis: d.imoveis,
     tarefas,
     vendasCheckin,
   };
