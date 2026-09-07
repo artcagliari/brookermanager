@@ -61,7 +61,10 @@ async function invokeSuperAdmin<T>(body: Record<string, unknown>): Promise<T> {
 
   const { data, error } = await sb.functions.invoke('superadmin-admin', {
     body,
-    headers: { Authorization: `Bearer ${session.access_token}` },
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      'X-User-Token': session.access_token,
+    },
   });
   if (error) {
     let message = error.message;
