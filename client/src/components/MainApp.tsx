@@ -68,6 +68,23 @@ function dataCadastroEfetiva(c: Cliente): string {
   return '1970-01-01';
 }
 
+function labelEstagioLead(estagio: Cliente['estagioFunil']): string {
+  switch (estagio) {
+    case 'visita':
+      return 'Visita agendada';
+    case 'realizada':
+      return 'Realizada';
+    case 'proposta':
+      return 'Proposta';
+    case 'fechado':
+      return 'Fechado';
+    case 'cancelada':
+      return 'Cancelada';
+    default:
+      return 'Lead';
+  }
+}
+
 function formatDataCadastroBr(iso: string): string {
   const p = iso.split('-');
   if (p.length !== 3) return iso;
@@ -533,8 +550,10 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
       estagioFunil:
         cEstagio === 'lead' ||
         cEstagio === 'visita' ||
+        cEstagio === 'realizada' ||
         cEstagio === 'proposta' ||
-        cEstagio === 'fechado'
+        cEstagio === 'fechado' ||
+        cEstagio === 'cancelada'
           ? cEstagio
           : undefined,
       imovelInteresseId:
@@ -1659,7 +1678,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                         </span>
                         {c.estagioFunil ? (
                           <span className="text-[8px] bg-gray-100 dark:bg-neutral-800 text-gray-600 dark:text-neutral-300 px-2 py-0.5 rounded-full font-black uppercase shrink-0">
-                            {c.estagioFunil}
+                            {labelEstagioLead(c.estagioFunil)}
                           </span>
                         ) : null}
                         {c.urgencia ? (
@@ -2156,9 +2175,11 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                   className="w-full p-3.5 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-xl border-0 font-bold outline-none min-h-[48px]"
                 >
                   <option value="lead">Lead</option>
-                  <option value="visita">Visita</option>
+                  <option value="visita">Visita agendada</option>
+                  <option value="realizada">Realizada</option>
                   <option value="proposta">Proposta</option>
                   <option value="fechado">Fechado</option>
+                  <option value="cancelada">Cancelada</option>
                 </select>
               </div>
               <input

@@ -22,7 +22,13 @@ export type Visita = {
 };
 
 export type UrgenciaLead = 'baixa' | 'media' | 'alta';
-export type EstagioFunilCliente = 'lead' | 'visita' | 'proposta' | 'fechado';
+export type EstagioFunilCliente =
+  | 'lead'
+  | 'visita'
+  | 'realizada'
+  | 'proposta'
+  | 'fechado'
+  | 'cancelada';
 
 export type Cliente = {
   id: number;
@@ -267,7 +273,14 @@ function coerceCliente(x: unknown): Cliente | null {
   const urg = String(o.urgencia ?? '');
   const urgOk: UrgenciaLead[] = ['baixa', 'media', 'alta'];
   const est = String(o.estagioFunil ?? '');
-  const estOk: EstagioFunilCliente[] = ['lead', 'visita', 'proposta', 'fechado'];
+  const estOk: EstagioFunilCliente[] = [
+    'lead',
+    'visita',
+    'realizada',
+    'proposta',
+    'fechado',
+    'cancelada',
+  ];
   return {
     id,
     nome: String(o.nome ?? ''),
