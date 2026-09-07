@@ -9,7 +9,6 @@ import {
   type FunilVisita,
   type Imovel,
   type TipoImovel,
-  type UrgenciaLead,
   type Visita,
   type VendaCheckin,
 } from '../types';
@@ -24,6 +23,8 @@ import {
   clienteAgendaLabel,
   enderecoParaVisitaDeImovel,
   formatBrlFull,
+  maskBrlWhole,
+  maskPhoneBr,
   mapsUrlForVisita,
   onlyDigits,
   parseBrlNumber,
@@ -38,7 +39,6 @@ import { msgLembrete24h, msgLembrete2h, msgPosVisita, whatsappLink } from '../li
 import { AgendaAssistantChat } from './AgendaAssistantChat';
 import { HomeExplore } from './HomeExplore';
 import { ImovelSearchPicker } from './ImovelSearchPicker';
-import { LeadAudioNotes } from './LeadAudioNotes';
 import { EmpresaEquipaPanel } from './EmpresaEquipaPanel';
 import { PosVisitaPanel } from './PosVisitaPanel';
 import { PropostaOverlay, type PropostaDetalhes } from './PropostaOverlay';
@@ -160,16 +160,13 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
   const [editClienteId, setEditClienteId] = useState<number | null>(null);
   const [cNome, setCNome] = useState('');
   const [cFone, setCFone] = useState('');
-  const [cValor, setCValor] = useState('');
   const [cStatus, setCStatus] = useState('Quente');
   const [cBairros, setCBairros] = useState('');
   const [cQuartos, setCQuartos] = useState('');
   const [cOrcMax, setCOrcMax] = useState('');
-  const [cUrgencia, setCUrgencia] = useState<UrgenciaLead | ''>('');
   const [cNotas, setCNotas] = useState('');
   const [cEstagio, setCEstagio] = useState('');
   const [cImovelInteresseId, setCImovelInteresseId] = useState<number | undefined>(undefined);
-  const [cDataCadastro, setCDataCadastro] = useState('');
 
   const [fValor, setFValor] = useState('');
   const [fEntrada, setFEntrada] = useState('');
@@ -248,7 +245,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
     setIEndereco(m.endereco ?? '');
     setIBairro(m.bairro);
     setICidade(m.cidade);
-    setIPreco(String(m.preco || ''));
+    setIPreco(m.preco ? maskBrlWhole(m.preco) : '');
     setIQuartos(String(m.quartos));
     setIBanheiros(String(m.banheiros));
     setITipo(m.tipo);
@@ -489,33 +486,27 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
     setEditClienteId(null);
     setCNome('');
     setCFone('');
-    setCValor('');
     setCStatus('Quente');
     setCBairros('');
     setCQuartos('');
     setCOrcMax('');
-    setCUrgencia('');
     setCNotas('');
     setCEstagio('lead');
     setCImovelInteresseId(undefined);
-    setCDataCadastro(todayISODate());
     setModalCliente(true);
   }, []);
 
   const openEditCliente = useCallback((c: Cliente) => {
     setEditClienteId(c.id);
     setCNome(c.nome);
-    setCFone(c.fone ?? '');
-    setCValor(String(c.valor ?? 0));
+    setCFone(maskPhoneBr(c.fone ?? ''));
     setCStatus(c.status);
     setCBairros(c.bairrosInteresse ?? '');
     setCQuartos(c.quartosDesejados != null ? String(c.quartosDesejados) : '');
-    setCOrcMax(c.orcamentoMax != null ? String(c.orcamentoMax) : '');
-    setCUrgencia((c.urgencia as UrgenciaLead) || '');
+    setCOrcMax(c.orcamentoMax != null ? maskBrlWhole(c.orcamentoMax) : '');
     setCNotas(c.notas ?? '');
     setCEstagio(c.estagioFunil ?? 'lead');
     setCImovelInteresseId(c.imovelInteresseId);
-    setCDataCadastro(c.dataCadastro ?? dataCadastroEfetiva(c));
     setModalCliente(true);
   }, []);
 
@@ -526,19 +517,18 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
       return;
     }
     const qd = parseInt(cQuartos, 10);
-    const dcRaw = cDataCadastro.trim();
-    const dataCadastro =
-      /^\d{4}-\d{2}-\d{2}$/.test(dcRaw) ? dcRaw : todayISODate();
+    const existing = editClienteId != null ? db.clientes.find((c) => c.id === editClienteId) : undefined;
+    const dataCadastro = existing ? dataCadastroEfetiva(existing) : todayISODate();
 
     const data: Omit<Cliente, 'id'> = {
       nome,
       fone: cFone.trim(),
-      valor: parseBrlNumber(cValor),
+      valor: existing?.valor ?? 0,
       status: cStatus,
       bairrosInteresse: cBairros.trim() || undefined,
       quartosDesejados: Number.isFinite(qd) && qd > 0 ? qd : undefined,
       orcamentoMax: parseBrlNumber(cOrcMax) > 0 ? parseBrlNumber(cOrcMax) : undefined,
-      urgencia: cUrgencia || undefined,
+      urgencia: existing?.urgencia,
       notas: cNotas.trim() || undefined,
       estagioFunil:
         cEstagio === 'lead' ||
@@ -571,18 +561,16 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
     setModalCliente(false);
   }, [
     editClienteId,
+    db.clientes,
     cNome,
     cFone,
-    cValor,
     cStatus,
     cBairros,
     cQuartos,
     cOrcMax,
-    cUrgencia,
     cNotas,
     cEstagio,
     cImovelInteresseId,
-    cDataCadastro,
     effectiveOwnerUserId,
     setDb,
   ]);
@@ -1653,7 +1641,6 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
               {clientesFiltrados.map((c) => {
                 const digits = onlyDigits(c.fone);
                 const wa = digits ? 'https://wa.me/55' + digits : '';
-                const valor = Number(c.valor) || 0;
                 const matches = matchImoveisParaCliente(c, db.imoveis).slice(0, 2);
                 const imLead =
                   c.imovelInteresseId != null
@@ -1662,7 +1649,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                 return (
                   <div
                     key={c.id}
-                    className="bg-white dark:bg-neutral-900 p-5 sm:p-6 rounded-[2rem] sm:rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-neutral-800 flex justify-between items-center gap-3"
+                    className="bg-white dark:bg-neutral-900 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-neutral-800 flex justify-between items-center gap-3"
                   >
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -1681,16 +1668,18 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                           </span>
                         ) : null}
                       </div>
-                      <p className="text-[10px] font-semibold text-gray-400 dark:text-neutral-500 mt-0.5">
-                        Cadastro: {formatDataCadastroBr(dataCadastroEfetiva(c))}
+                      <p className="text-xs font-semibold text-gray-500 dark:text-neutral-400 mt-0.5">
+                        {c.fone ? maskPhoneBr(c.fone) : 'Sem telefone'} · {formatDataCadastroBr(dataCadastroEfetiva(c))}
                         {!c.dataCadastro ? (
                           <span className="text-gray-400 dark:text-neutral-500"> · data estimada</span>
                         ) : null}
                       </p>
-                      <p className="text-xs font-bold text-gray-400 dark:text-neutral-500 tracking-wider">
-                        Estimativa (CRM, não é VGV): {formatBrlFull(valor)}
-                        {c.orcamentoMax ? ` · teto ${formatBrlFull(c.orcamentoMax)}` : ''}
-                      </p>
+                      {c.orcamentoMax || c.quartosDesejados ? (
+                        <p className="text-[11px] font-bold text-gray-500 dark:text-neutral-400 mt-1">
+                          {c.orcamentoMax ? `Até ${formatBrlFull(c.orcamentoMax)}` : 'Orçamento não informado'}
+                          {c.quartosDesejados ? ` · ${c.quartosDesejados} quarto${c.quartosDesejados === 1 ? '' : 's'}` : ''}
+                        </p>
+                      ) : null}
                       {c.bairrosInteresse?.trim() ? (
                         <p className="text-[10px] text-gray-500 dark:text-neutral-400 mt-1 line-clamp-2">
                           📍 {c.bairrosInteresse}
@@ -2116,9 +2105,9 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
 
       {modalCliente ? (
         <div className="fixed inset-0 z-50 modal-overlay flex items-end no-print">
-          <div className="bg-white dark:bg-neutral-900 w-full rounded-t-[3rem] p-8 sm:p-10 max-h-[90vh] overflow-y-auto max-w-2xl mx-auto dark:text-neutral-100">
-            <div className="w-12 h-1 bg-gray-200 dark:bg-neutral-600 mx-auto mb-6 rounded-full" />
-            <h3 className="text-2xl sm:text-3xl font-black mb-6 italic tracking-tight">
+          <div className="bg-white dark:bg-neutral-900 w-full rounded-t-[2rem] p-5 sm:p-7 max-h-[92vh] overflow-y-auto max-w-xl mx-auto dark:text-neutral-100">
+            <div className="w-10 h-1 bg-gray-200 dark:bg-neutral-600 mx-auto mb-4 rounded-full" />
+            <h3 className="text-2xl font-black mb-4 italic tracking-tight">
               {editClienteId != null ? (
                 <>
                   Editar <span className="text-brand-gold not-italic">Lead</span>
@@ -2129,75 +2118,42 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                 </>
               )}
             </h3>
-            <div className="space-y-4">
-              <input
-                value={cNome}
-                onChange={(e) => setCNome(e.target.value)}
-                placeholder="Nome do Interessado"
-                className="w-full p-4 sm:p-5 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-2xl border-0 font-semibold outline-none focus:ring-2 ring-brand-gold/30 min-h-[48px]"
-              />
-              <input
-                type="tel"
-                value={cFone}
-                onChange={(e) => setCFone(e.target.value)}
-                placeholder="Fone/WhatsApp"
-                className="w-full p-4 sm:p-5 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-2xl border-0 font-semibold outline-none focus:ring-2 ring-brand-gold/30 min-h-[48px]"
-              />
-              <div>
-                <label
-                  htmlFor="lead-data-cadastro"
-                  className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-neutral-500 ml-1 block mb-1"
-                >
-                  Data de cadastro
-                </label>
+            <div className="space-y-3">
+              <div className="grid sm:grid-cols-2 gap-3">
                 <input
-                  id="lead-data-cadastro"
-                  type="date"
-                  value={cDataCadastro}
-                  onChange={(e) => setCDataCadastro(e.target.value)}
-                  className="w-full p-4 sm:p-5 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-2xl border-0 font-semibold outline-none focus:ring-2 ring-brand-gold/30 min-h-[48px]"
+                  value={cNome}
+                  onChange={(e) => setCNome(e.target.value)}
+                  placeholder="Nome do interessado *"
+                  autoFocus
+                  className="w-full p-3.5 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-xl border-0 font-semibold outline-none focus:ring-2 ring-brand-gold/30 min-h-[48px]"
+                />
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  value={cFone}
+                  onChange={(e) => setCFone(maskPhoneBr(e.target.value))}
+                  placeholder="(11) 99999-9999"
+                  maxLength={15}
+                  className="w-full p-3.5 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-xl border-0 font-semibold outline-none focus:ring-2 ring-brand-gold/30 min-h-[48px]"
                 />
               </div>
-              <div>
-                <label
-                  htmlFor="lead-valor-estimativa"
-                  className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-neutral-500 ml-1 block mb-1"
+              <div className="grid grid-cols-2 gap-3">
+                <select
+                  value={cStatus}
+                  onChange={(e) => setCStatus(e.target.value)}
+                  aria-label="Temperatura do lead"
+                  className="w-full p-3.5 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-xl border-0 font-bold outline-none min-h-[48px]"
                 >
-                  Estimativa de negócio (não é VGV)
-                </label>
-                <div className="relative">
-                  <span className="absolute left-4 sm:left-5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-neutral-500 font-bold">
-                    R$
-                  </span>
-                  <input
-                    id="lead-valor-estimativa"
-                    type="number"
-                    inputMode="decimal"
-                    value={cValor}
-                    onChange={(e) => setCValor(e.target.value)}
-                    placeholder="Opcional — nota interna"
-                    className="w-full p-4 sm:p-5 pl-11 sm:pl-12 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-2xl border-0 font-bold outline-none focus:ring-2 ring-brand-gold/30 min-h-[48px]"
-                  />
-                </div>
-              </div>
-              <select
-                value={cStatus}
-                onChange={(e) => setCStatus(e.target.value)}
-                className="w-full p-4 sm:p-5 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-2xl border-0 font-bold outline-none min-h-[48px]"
-              >
-                <option value="Quente">🔥 Lead Quente</option>
-                <option value="Morno">🌤️ Lead Morno</option>
-                <option value="Frio">❄️ Lead Frio</option>
-                <option value="Fechado">🚀 Fechado</option>
-              </select>
-              <div>
-                <label className="text-[10px] font-bold text-gray-400 dark:text-neutral-500 uppercase tracking-widest ml-1">
-                  Estágio comercial
-                </label>
+                  <option value="Quente">🔥 Quente</option>
+                  <option value="Morno">🌤️ Morno</option>
+                  <option value="Frio">❄️ Frio</option>
+                  <option value="Fechado">🚀 Fechado</option>
+                </select>
                 <select
                   value={cEstagio}
                   onChange={(e) => setCEstagio(e.target.value)}
-                  className="w-full mt-1 p-4 sm:p-5 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-2xl border-0 font-bold outline-none min-h-[48px]"
+                  aria-label="Estágio comercial"
+                  className="w-full p-3.5 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-xl border-0 font-bold outline-none min-h-[48px]"
                 >
                   <option value="lead">Lead</option>
                   <option value="visita">Visita</option>
@@ -2209,7 +2165,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                 value={cBairros}
                 onChange={(e) => setCBairros(e.target.value)}
                 placeholder="Bairros / regiões de interesse"
-                className="w-full p-4 sm:p-5 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-2xl border-0 font-semibold outline-none focus:ring-2 ring-brand-gold/30 min-h-[48px]"
+                className="w-full p-3.5 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-xl border-0 font-semibold outline-none focus:ring-2 ring-brand-gold/30 min-h-[48px]"
               />
               <div className="grid grid-cols-2 gap-3">
                 <input
@@ -2218,59 +2174,59 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                   min={0}
                   value={cQuartos}
                   onChange={(e) => setCQuartos(e.target.value)}
-                  placeholder="Quartos desejados"
-                  className="w-full p-4 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-2xl border-0 font-bold outline-none min-h-[48px]"
+                  placeholder="Quartos"
+                  className="w-full p-3.5 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-xl border-0 font-bold outline-none min-h-[48px]"
                 />
                 <input
-                  type="number"
-                  inputMode="decimal"
+                  type="text"
+                  inputMode="numeric"
                   value={cOrcMax}
-                  onChange={(e) => setCOrcMax(e.target.value)}
-                  placeholder="Orçamento máx. (R$)"
-                  className="w-full p-4 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-2xl border-0 font-bold outline-none min-h-[48px]"
+                  onChange={(e) => setCOrcMax(maskBrlWhole(e.target.value))}
+                  placeholder="Orçamento máximo"
+                  className="w-full p-3.5 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-xl border-0 font-bold outline-none min-h-[48px]"
                 />
               </div>
-              <select
-                value={cUrgencia}
-                onChange={(e) => setCUrgencia((e.target.value as UrgenciaLead | '') || '')}
-                className="w-full p-4 sm:p-5 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-2xl border-0 font-bold outline-none min-h-[48px]"
-              >
-                <option value="">Urgência da mudança…</option>
-                <option value="baixa">Baixa</option>
-                <option value="media">Média</option>
-                <option value="alta">Alta</option>
-              </select>
-              <p className="text-[11px] text-gray-500 dark:text-neutral-400 px-1">
-                O VGV usa só o valor da venda no <strong>Pós-visita</strong> (preço do imóvel ou valor acordado), após
-                confirmar — não o valor estimado acima.
-              </p>
-              <ImovelSearchPicker
-                imoveis={db.imoveis}
-                selectedId={
-                  cImovelInteresseId != null &&
-                  db.imoveis.some((i) => i.id === cImovelInteresseId)
-                    ? cImovelInteresseId
-                    : undefined
-                }
-                onPick={(m) => setCImovelInteresseId(m.id)}
-                onClear={() => setCImovelInteresseId(undefined)}
-                variant="lead"
-              />
-              <LeadAudioNotes value={cNotas} onChange={setCNotas} />
-              <button
-                type="button"
-                onClick={saveCliente}
-                className="w-full bg-brand-dark text-white font-black py-5 rounded-[2rem] shadow-2xl mt-4 uppercase tracking-widest text-xs min-h-[52px]"
-              >
-                Salvar Lead
-              </button>
-              <button
-                type="button"
-                onClick={() => setModalCliente(false)}
-                className="w-full text-gray-400 dark:text-neutral-500 py-3 font-bold text-[10px] uppercase tracking-widest"
-              >
-                Voltar
-              </button>
+              <details className="rounded-xl border border-gray-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
+                <summary className="cursor-pointer list-none p-3.5 text-xs font-bold text-gray-600 dark:text-neutral-300">
+                  + Imóvel de interesse e observações
+                </summary>
+                <div className="border-t border-gray-100 dark:border-neutral-800 p-3.5 space-y-3">
+                  <ImovelSearchPicker
+                    imoveis={db.imoveis}
+                    selectedId={
+                      cImovelInteresseId != null && db.imoveis.some((i) => i.id === cImovelInteresseId)
+                        ? cImovelInteresseId
+                        : undefined
+                    }
+                    onPick={(m) => setCImovelInteresseId(m.id)}
+                    onClear={() => setCImovelInteresseId(undefined)}
+                    variant="lead"
+                  />
+                  <textarea
+                    value={cNotas}
+                    onChange={(e) => setCNotas(e.target.value)}
+                    placeholder="Observações"
+                    rows={2}
+                    className="w-full p-3.5 rounded-xl bg-gray-50 dark:bg-neutral-800 dark:text-white border-0 text-sm outline-none focus:ring-2 ring-brand-gold/30"
+                  />
+                </div>
+              </details>
+              <div className="grid grid-cols-[1fr_2fr] gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setModalCliente(false)}
+                  className="min-h-[50px] rounded-xl border border-gray-200 dark:border-neutral-700 text-gray-500 dark:text-neutral-300 font-bold text-xs"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={saveCliente}
+                  className="min-h-[50px] rounded-xl bg-brand-dark text-white font-black shadow-lg uppercase tracking-wider text-xs"
+                >
+                  Salvar lead
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2438,11 +2394,11 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                   Preço (R$)
                 </label>
                 <input
-                  type="number"
-                  inputMode="decimal"
+                  type="text"
+                  inputMode="numeric"
                   value={iPreco}
-                  onChange={(e) => setIPreco(e.target.value)}
-                  placeholder="Ex: 850000"
+                  onChange={(e) => setIPreco(maskBrlWhole(e.target.value))}
+                  placeholder="R$ 850.000"
                   className="mt-1 w-full p-4 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-2xl outline-none border-0 font-bold min-h-[48px]"
                 />
               </div>

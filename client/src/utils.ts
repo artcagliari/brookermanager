@@ -44,6 +44,8 @@ export function parseBrlNumber(input: string | number | null | undefined): numbe
     normalized = cleaned.replace(/\./g, '').replace(',', '.');
   } else if (hasComma) {
     normalized = cleaned.replace(',', '.');
+  } else if (/^-?\d{1,3}(\.\d{3})+$/.test(cleaned)) {
+    normalized = cleaned.replace(/\./g, '');
   }
 
   const val = Number.parseFloat(normalized);
@@ -52,6 +54,25 @@ export function parseBrlNumber(input: string | number | null | undefined): numbe
 
 export function onlyDigits(phone: string): string {
   return String(phone).replace(/\D/g, '');
+}
+
+/** Máscara progressiva para telefone brasileiro, com no máximo 11 dígitos. */
+export function maskPhoneBr(input: string): string {
+  const digits = onlyDigits(input).slice(0, 11);
+  if (!digits) return '';
+  if (digits.length <= 2) return `(${digits}`;
+  const area = digits.slice(0, 2);
+  const local = digits.slice(2);
+  if (local.length <= 4) return `(${area}) ${local}`;
+  if (digits.length <= 10) return `(${area}) ${local.slice(0, 4)}-${local.slice(4)}`;
+  return `(${area}) ${local.slice(0, 5)}-${local.slice(5)}`;
+}
+
+/** Máscara de reais inteiros para preços de imóveis e orçamentos. */
+export function maskBrlWhole(input: string | number | null | undefined): string {
+  const digits = String(input ?? '').replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, 12);
+  if (!digits) return '';
+  return `R$ ${Number(digits).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`;
 }
 
 export function mapsUrl(endereco: string): string {
