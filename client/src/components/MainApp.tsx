@@ -6,7 +6,6 @@ import {
   type AppSection,
   type BrokerDb,
   type Cliente,
-  type EstagioFunilCliente,
   type FunilVisita,
   type Imovel,
   type TipoImovel,
@@ -54,20 +53,11 @@ type Props = {
   userEmail: string;
 };
 
-const ETAPA_LEAD_POR_VISITA: Record<FunilVisita, EstagioFunilCliente> = {
-  agendada: 'visita',
-  realizada: 'realizada',
-  proposta: 'proposta',
-  fechado: 'fechado',
-  cancelada: 'cancelada',
-};
-
 const ABAS_AGENDA: { value: 'todas' | FunilVisita; label: string }[] = [
   { value: 'todas', label: 'Todas' },
   { value: 'agendada', label: 'Agendadas' },
   { value: 'realizada', label: 'Realizadas' },
   { value: 'proposta', label: 'Propostas' },
-  { value: 'fechado', label: 'Fechadas' },
   { value: 'cancelada', label: 'Canceladas' },
 ];
 
@@ -84,23 +74,6 @@ function dataCadastroEfetiva(c: Cliente): string {
     }
   }
   return '1970-01-01';
-}
-
-function labelEstagioLead(estagio: Cliente['estagioFunil']): string {
-  switch (estagio) {
-    case 'visita':
-      return 'Visita agendada';
-    case 'realizada':
-      return 'Realizada';
-    case 'proposta':
-      return 'Proposta';
-    case 'fechado':
-      return 'Fechado';
-    case 'cancelada':
-      return 'Cancelada';
-    default:
-      return 'Lead';
-  }
 }
 
 function formatDataCadastroBr(iso: string): string {
@@ -201,7 +174,6 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
   const [cQuartos, setCQuartos] = useState('');
   const [cOrcMax, setCOrcMax] = useState('');
   const [cNotas, setCNotas] = useState('');
-  const [cEstagio, setCEstagio] = useState('');
   const [cImovelInteresseId, setCImovelInteresseId] = useState<number | undefined>(undefined);
 
   const [fValor, setFValor] = useState('');
@@ -440,7 +412,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
         data: venda.dataCheckin,
         endereco: im ? enderecoParaVisitaDeImovel(im) : undefined,
         imovelId: venda.imovelId,
-        funilEstado: 'fechado',
+        funilEstado: 'realizada',
         ownerUserId: venda.ownerUserId,
       };
       setDb((d) => ({ ...d, visitas: [...d.visitas, { ...payload, id: Date.now() }] }));
@@ -525,14 +497,6 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
         visitas: d.visitas.map((v) =>
           v.id === visita.id ? { ...v, funilEstado: etapa } : v
         ),
-        clientes:
-          visita.clienteId == null
-            ? d.clientes
-            : d.clientes.map((c) =>
-                c.id === visita.clienteId
-                  ? { ...c, estagioFunil: ETAPA_LEAD_POR_VISITA[etapa] }
-                  : c
-              ),
       }));
     },
     [setDb]
@@ -547,7 +511,6 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
     setCQuartos('');
     setCOrcMax('');
     setCNotas('');
-    setCEstagio('lead');
     setCImovelInteresseId(undefined);
     setModalCliente(true);
   }, []);
@@ -561,7 +524,6 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
     setCQuartos(c.quartosDesejados != null ? String(c.quartosDesejados) : '');
     setCOrcMax(c.orcamentoMax != null ? maskBrlWhole(c.orcamentoMax) : '');
     setCNotas(c.notas ?? '');
-    setCEstagio(c.estagioFunil ?? 'lead');
     setCImovelInteresseId(c.imovelInteresseId);
     setModalCliente(true);
   }, []);
@@ -586,15 +548,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
       orcamentoMax: parseBrlNumber(cOrcMax) > 0 ? parseBrlNumber(cOrcMax) : undefined,
       urgencia: existing?.urgencia,
       notas: cNotas.trim() || undefined,
-      estagioFunil:
-        cEstagio === 'lead' ||
-        cEstagio === 'visita' ||
-        cEstagio === 'realizada' ||
-        cEstagio === 'proposta' ||
-        cEstagio === 'fechado' ||
-        cEstagio === 'cancelada'
-          ? cEstagio
-          : undefined,
+      estagioFunil: 'lead',
       imovelInteresseId:
         cImovelInteresseId != null && Number.isFinite(cImovelInteresseId)
           ? cImovelInteresseId
@@ -627,7 +581,6 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
     cQuartos,
     cOrcMax,
     cNotas,
-    cEstagio,
     cImovelInteresseId,
     effectiveOwnerUserId,
     setDb,
@@ -995,7 +948,6 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
       agendada: 0,
       realizada: 0,
       proposta: 0,
-      fechado: 0,
       cancelada: 0,
     };
     for (const visita of sortedVisitas) counts[visita.funilEstado ?? 'agendada'] += 1;
@@ -1595,7 +1547,6 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                         <option value="agendada">Agendada</option>
                         <option value="realizada">Realizada</option>
                         <option value="proposta">Proposta</option>
-                        <option value="fechado">Fechado</option>
                         <option value="cancelada">Cancelada</option>
                       </select>
                       {mapHref ? (
@@ -1776,11 +1727,6 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                         <span className="text-[8px] bg-brand-gold/10 text-brand-gold px-2 py-0.5 rounded-full font-black uppercase shrink-0">
                           {c.status}
                         </span>
-                        {c.estagioFunil ? (
-                          <span className="text-[8px] bg-gray-100 dark:bg-neutral-800 text-gray-600 dark:text-neutral-300 px-2 py-0.5 rounded-full font-black uppercase shrink-0">
-                            {labelEstagioLead(c.estagioFunil)}
-                          </span>
-                        ) : null}
                         {c.urgencia ? (
                           <span className="text-[8px] text-amber-700 dark:text-amber-300 font-black uppercase shrink-0">
                             urg. {c.urgencia}
@@ -2177,7 +2123,6 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                   <option value="agendada">Agendada</option>
                   <option value="realizada">Realizada</option>
                   <option value="proposta">Proposta</option>
-                  <option value="fechado">Fechado</option>
                   <option value="cancelada">Cancelada</option>
                 </select>
               </div>
@@ -2256,32 +2201,17 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                   className="w-full p-3.5 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-xl border-0 font-semibold outline-none focus:ring-2 ring-brand-gold/30 min-h-[48px]"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <select
-                  value={cStatus}
-                  onChange={(e) => setCStatus(e.target.value)}
-                  aria-label="Temperatura do lead"
-                  className="w-full p-3.5 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-xl border-0 font-bold outline-none min-h-[48px]"
-                >
-                  <option value="Quente">🔥 Quente</option>
-                  <option value="Morno">🌤️ Morno</option>
-                  <option value="Frio">❄️ Frio</option>
-                  <option value="Fechado">🚀 Fechado</option>
-                </select>
-                <select
-                  value={cEstagio}
-                  onChange={(e) => setCEstagio(e.target.value)}
-                  aria-label="Estágio comercial"
-                  className="w-full p-3.5 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-xl border-0 font-bold outline-none min-h-[48px]"
-                >
-                  <option value="lead">Lead</option>
-                  <option value="visita">Visita agendada</option>
-                  <option value="realizada">Realizada</option>
-                  <option value="proposta">Proposta</option>
-                  <option value="fechado">Fechado</option>
-                  <option value="cancelada">Cancelada</option>
-                </select>
-              </div>
+              <select
+                value={cStatus}
+                onChange={(e) => setCStatus(e.target.value)}
+                aria-label="Temperatura do lead"
+                className="w-full p-3.5 bg-gray-50 dark:bg-neutral-800 dark:text-white rounded-xl border-0 font-bold outline-none min-h-[48px]"
+              >
+                <option value="Quente">🔥 Quente</option>
+                <option value="Morno">🌤️ Morno</option>
+                <option value="Frio">❄️ Frio</option>
+                <option value="Fechado">🚀 Fechado</option>
+              </select>
               <input
                 value={cBairros}
                 onChange={(e) => setCBairros(e.target.value)}

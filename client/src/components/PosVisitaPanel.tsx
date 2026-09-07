@@ -23,8 +23,7 @@ type Props = {
 const FUNIL_VISITA: { value: FunilVisita; label: string }[] = [
   { value: 'agendada', label: 'Agendada' },
   { value: 'realizada', label: 'Realizada' },
-  { value: 'proposta', label: 'Em andamento / proposta' },
-  { value: 'fechado', label: 'Fechou' },
+  { value: 'proposta', label: 'Proposta' },
   { value: 'cancelada', label: 'Cancelada' },
 ];
 
@@ -32,14 +31,16 @@ function imovelDe(db: BrokerDb, id: number): Imovel | undefined {
   return db.imoveis.find((m) => m.id === id);
 }
 
-/** Texto único: situação + notas (para “resumo automático” da conversa). */
+/** Texto único: situação, notas e proposta (para “resumo automático” da conversa). */
 function resumoConversa(v: Visita): string {
   const estado =
     FUNIL_VISITA.find((f) => f.value === (v.funilEstado ?? 'agendada'))?.label ?? '—';
   const notas = (v.notasVisita ?? '').trim();
-  if (!notas) return `Situação: ${estado}. Sem notas ainda — descreva como foi a conversa.`;
-  const curto = notas.length > 180 ? notas.slice(0, 180) + '…' : notas;
-  return `Situação: ${estado}. Conversa: ${curto}`;
+  const proposta = (v.propostaVisita ?? '').trim();
+  const partes = [`Situação: ${estado}.`];
+  partes.push(notas ? `Conversa: ${notas.length > 140 ? notas.slice(0, 140) + '…' : notas}.` : 'Sem notas.');
+  if (proposta) partes.push(`Proposta: ${proposta.length > 120 ? proposta.slice(0, 120) + '…' : proposta}.`);
+  return partes.join(' ');
 }
 
 function precoParaCampoValor(m: Imovel): string {
@@ -98,10 +99,7 @@ export function PosVisitaPanel({ db, setDb, onRegistrarNaAgenda, currentUserId }
     return match?.id;
   };
 
-  /**
-   * Pós-visita (notas) só depois de marcar a visita como realizada na agenda.
-   * Em andamento até “Fechou”; aí sai da lista.
-   */
+  /** Pós-visita editável enquanto estiver realizada ou em proposta. */
   const visitasFollowUp = useMemo(() => {
     return [...db.visitas]
       .filter((v) => v.funilEstado === 'realizada' || v.funilEstado === 'proposta')
@@ -111,18 +109,6 @@ export function PosVisitaPanel({ db, setDb, onRegistrarNaAgenda, currentUserId }
         if (da !== db_) return db_.localeCompare(da);
         return b.hora.localeCompare(a.hora);
       });
-  }, [db.visitas]);
-
-  const visitasFechadasArquivo = useMemo(() => {
-    return [...db.visitas]
-      .filter((v) => v.funilEstado === 'fechado')
-      .sort((a, b) => {
-        const da = a.data || '';
-        const db_ = b.data || '';
-        if (da !== db_) return db_.localeCompare(da);
-        return b.hora.localeCompare(a.hora);
-      })
-      .slice(0, 30);
   }, [db.visitas]);
 
   const vgv = useMemo(() => vgvTotalConfirmado(vendas), [vendas]);
@@ -357,8 +343,7 @@ export function PosVisitaPanel({ db, setDb, onRegistrarNaAgenda, currentUserId }
               {visitasParaVincular.map((v) => (
                 <option key={v.id} value={v.id}>
                   {(v.data ?? '')} {v.hora} · {v.cliente.slice(0, 42)}
-                  {v.cliente.length > 42 ? '…' : ''}{' '}
-                  {v.funilEstado === 'fechado' ? '· fechou' : ''}
+                  {v.cliente.length > 42 ? '…' : ''}
                 </option>
               ))}
             </select>
@@ -552,13 +537,12 @@ export function PosVisitaPanel({ db, setDb, onRegistrarNaAgenda, currentUserId }
       <div className="bg-white dark:bg-neutral-900 rounded-[2rem] p-6 border border-gray-100 dark:border-neutral-800 space-y-4">
         <h3 className="font-bold text-brand-dark dark:text-white">Visitas — como foi</h3>
         <p className="text-[11px] text-gray-500 dark:text-neutral-400">
-          Só entram visitas já marcadas como <strong>Realizada</strong> na agenda (e em andamento ou proposta). Ao
-          marcar <strong>Fechou</strong>, a visita sai daqui (arquivo abaixo). O VGV não muda aqui — só com vendas
-          confirmadas.
+          As visitas realizadas permanecem aqui para você salvar e reabrir quando quiser. Registre separadamente como
+          foi a visita e as condições da proposta. O fechamento pertence à venda/VGV.
         </p>
         {visitasFollowUp.length === 0 ? (
           <p className="text-sm text-gray-500 py-4 text-center border border-dashed rounded-2xl">
-            Nenhuma visita nesta fase: marque como <strong>Realizada</strong> na agenda ou já estão fechadas.
+            Nenhuma visita nesta fase. Marque uma visita como <strong>Realizada</strong> na Agenda.
           </p>
         ) : (
           <ul className="space-y-4 max-h-[min(420px,50vh)] overflow-y-auto pr-1">
@@ -577,54 +561,51 @@ export function PosVisitaPanel({ db, setDb, onRegistrarNaAgenda, currentUserId }
                   <span className="font-bold text-emerald-700 dark:text-emerald-400">Resumo automático: </span>
                   {resumoConversa(v)}
                 </p>
-                <label className="text-[9px] font-black uppercase text-gray-400">Situação</label>
-                <select
-                  value={v.funilEstado ?? 'agendada'}
-                  onChange={(e) =>
-                    patchVisita(v.id, { funilEstado: e.target.value as FunilVisita })
-                  }
-                  className="w-full p-3 rounded-xl bg-white dark:bg-neutral-800 dark:text-white border border-gray-200 dark:border-neutral-700 text-sm font-semibold"
-                >
-                  {FUNIL_VISITA.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
                 <label className="text-[9px] font-black uppercase text-gray-400">Notas (como foi a visita)</label>
                 <textarea
                   value={v.notasVisita ?? ''}
                   onChange={(e) => patchVisita(v.id, { notasVisita: e.target.value || undefined })}
-                  placeholder="Ex.: cliente gostou, vai pensar; ou fechou proposta verbal…"
+                  placeholder="Ex.: cliente gostou da localização e pediu uma segunda visita…"
                   rows={3}
                   className="w-full p-3 rounded-xl bg-white dark:bg-neutral-800 dark:text-white border border-gray-200 dark:border-neutral-700 text-sm resize-y min-h-[72px]"
                 />
+                <label className="text-[9px] font-black uppercase text-gray-400">Proposta</label>
+                <textarea
+                  value={v.propostaVisita ?? ''}
+                  onChange={(e) => patchVisita(v.id, { propostaVisita: e.target.value || undefined })}
+                  placeholder="Ex.: R$ 780.000, entrada de R$ 200.000 e saldo financiado…"
+                  rows={3}
+                  className="w-full p-3 rounded-xl bg-white dark:bg-neutral-800 dark:text-white border border-gray-200 dark:border-neutral-700 text-sm resize-y min-h-[72px]"
+                />
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => patchVisita(v.id, { funilEstado: 'realizada' })}
+                    className="min-h-[44px] rounded-xl bg-emerald-600 text-white text-xs font-black"
+                  >
+                    Salvar realizada
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => patchVisita(v.id, { funilEstado: 'proposta' })}
+                    className="min-h-[44px] rounded-xl bg-brand-gold text-white text-xs font-black"
+                  >
+                    Marcar proposta
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => patchVisita(v.id, { funilEstado: 'cancelada' })}
+                    className="min-h-[44px] rounded-xl border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 text-xs font-black"
+                  >
+                    Cancelar visita
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
         )}
       </div>
 
-      {visitasFechadasArquivo.length > 0 ? (
-        <div className="bg-gray-50 dark:bg-neutral-900/50 rounded-[2rem] p-5 border border-dashed border-gray-200 dark:border-neutral-700 space-y-2">
-          <h4 className="text-sm font-bold text-gray-600 dark:text-neutral-300">Arquivo — visitas fechadas (recentes)</h4>
-          <ul className="text-xs text-gray-500 dark:text-neutral-400 space-y-1.5 max-h-40 overflow-y-auto">
-            {visitasFechadasArquivo.map((v) => (
-              <li key={v.id}>
-                {(v.data ?? '')} {v.hora} · {v.cliente.slice(0, 48)}
-                {v.cliente.length > 48 ? '…' : ''}
-                {(v.notasVisita ?? '').trim() ? (
-                  <span className="block text-[11px] text-gray-400 mt-0.5 pl-2 border-l-2 border-emerald-300/60">
-                    {(v.notasVisita ?? '').length > 120
-                      ? (v.notasVisita ?? '').slice(0, 120) + '…'
-                      : (v.notasVisita ?? '')}
-                  </span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
         </div>
       ) : (
         <div

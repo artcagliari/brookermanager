@@ -1,4 +1,4 @@
-export type FunilVisita = 'agendada' | 'realizada' | 'proposta' | 'fechado' | 'cancelada';
+export type FunilVisita = 'agendada' | 'realizada' | 'proposta' | 'cancelada';
 
 export type Visita = {
   id: number;
@@ -17,18 +17,14 @@ export type Visita = {
   funilEstado?: FunilVisita;
   /** Como foi a visita (texto livre) — preenchido na aba Pós-visita. */
   notasVisita?: string;
+  /** Condições e detalhes da proposta apresentada após a visita. */
+  propostaVisita?: string;
   /** Utilizador (auth) que criou o registo — visível na vista Equipa (empresa). */
   ownerUserId?: string;
 };
 
 export type UrgenciaLead = 'baixa' | 'media' | 'alta';
-export type EstagioFunilCliente =
-  | 'lead'
-  | 'visita'
-  | 'realizada'
-  | 'proposta'
-  | 'fechado'
-  | 'cancelada';
+export type EstagioFunilCliente = 'lead';
 
 export type Cliente = {
   id: number;
@@ -173,8 +169,11 @@ export function vgvTotalConfirmado(vendas: VendaCheckin[]): number {
 }
 
 function mapFunilVisita(raw: unknown): FunilVisita | undefined {
-  const u = String(raw || '').trim() as FunilVisita;
-  const ok: FunilVisita[] = ['agendada', 'realizada', 'proposta', 'fechado', 'cancelada'];
+  const rawValue = String(raw || '').trim();
+  // Migração de dados antigos: fechamento agora pertence à venda/VGV, não à visita.
+  if (rawValue === 'fechado') return 'proposta';
+  const u = rawValue as FunilVisita;
+  const ok: FunilVisita[] = ['agendada', 'realizada', 'proposta', 'cancelada'];
   return ok.includes(u) ? u : undefined;
 }
 
@@ -217,6 +216,10 @@ function coerceVisita(x: unknown): Visita | null {
         : undefined,
     notasVisita:
       o.notasVisita != null && String(o.notasVisita).trim() ? String(o.notasVisita) : undefined,
+    propostaVisita:
+      o.propostaVisita != null && String(o.propostaVisita).trim()
+        ? String(o.propostaVisita)
+        : undefined,
     ownerUserId:
       o.ownerUserId != null && String(o.ownerUserId).trim()
         ? String(o.ownerUserId).trim()
@@ -273,14 +276,7 @@ function coerceCliente(x: unknown): Cliente | null {
   const urg = String(o.urgencia ?? '');
   const urgOk: UrgenciaLead[] = ['baixa', 'media', 'alta'];
   const est = String(o.estagioFunil ?? '');
-  const estOk: EstagioFunilCliente[] = [
-    'lead',
-    'visita',
-    'realizada',
-    'proposta',
-    'fechado',
-    'cancelada',
-  ];
+  const estOk: EstagioFunilCliente[] = ['lead'];
   return {
     id,
     nome: String(o.nome ?? ''),
