@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { BrokerDb } from '../types';
-import { vgvTotalConfirmado } from '../types';
+import { comissaoTotalConfirmada, valorComissaoVenda, vgvTotalConfirmado } from '../types';
 import type { TeamMemberProfile } from '../api';
 import { formatBrlFull } from '../utils';
 
@@ -29,29 +29,33 @@ export function EmpresaEquipaPanel({
   );
 
   const relatorioVendas = useMemo(() => {
-    const vendas = (db.vendasCheckin ?? []).filter((v) => v.vendaConfirmada !== false);
-    const byOwner = new Map<string, typeof vendas>();
-    for (const v of vendas) {
-      const k = v.ownerUserId ?? '__sem__';
-      if (!byOwner.has(k)) byOwner.set(k, []);
-      byOwner.get(k)!.push(v);
-    }
-    const nomeQuemVendeu = (uid: string) => {
-      if (uid === '__sem__') return 'Sem responsável (registos antigos)';
-      const m = team.find((t) => t.id === uid);
-      if (m?.nome_exibicao?.trim()) return m.nome_exibicao.trim();
-      return 'Utilizador não listado na equipa';
-    };
-    const rows = [...byOwner.entries()].map(([uid, list]) => ({
-      uid,
-      nome: nomeQuemVendeu(uid),
-      count: list.length,
-      vgv: vgvTotalConfirmado(list),
-    }));
-    rows.sort((a, b) => b.vgv - a.vgv);
+    const vendas = db.vendasCheckin ?? [];
+    const ownerIds = new Set(team.map((m) => m.id));
+    for (const venda of vendas) ownerIds.add(venda.ownerUserId ?? '__sem__');
+    const rows = [...ownerIds].map((uid) => {
+      const membro = team.find((m) => m.id === uid);
+      const list = vendas.filter((v) => (v.ownerUserId ?? '__sem__') === uid);
+      const confirmadas = list.filter((v) => v.vendaConfirmada !== false);
+      const pendentes = list.filter((v) => v.vendaConfirmada === false);
+      return {
+        uid,
+        nome:
+          membro?.nome_exibicao?.trim() ||
+          (uid === '__sem__' ? 'Sem responsável (registros antigos)' : 'Usuário não listado'),
+        role: membro?.role,
+        count: confirmadas.length,
+        pendingCount: pendentes.length,
+        vgv: vgvTotalConfirmado(confirmadas),
+        commission: comissaoTotalConfirmada(confirmadas),
+        pendingCommission: pendentes.reduce((sum, venda) => sum + valorComissaoVenda(venda), 0),
+      };
+    });
+    rows.sort((a, b) => b.commission - a.commission || b.vgv - a.vgv || a.nome.localeCompare(b.nome, 'pt-BR'));
     const totalVgv = rows.reduce((s, r) => s + r.vgv, 0);
     const totalN = rows.reduce((s, r) => s + r.count, 0);
-    return { rows, totalVgv, totalN };
+    const totalCommission = rows.reduce((s, r) => s + r.commission, 0);
+    const totalPendingCommission = rows.reduce((s, r) => s + r.pendingCommission, 0);
+    return { rows, totalVgv, totalN, totalCommission, totalPendingCommission };
   }, [db.vendasCheckin, team]);
 
   const avisoCorretoresOcultos =
@@ -79,49 +83,69 @@ export function EmpresaEquipaPanel({
 
       <div className="rounded-[1.5rem] border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-5 space-y-3">
         <h3 className="text-sm font-black text-brand-dark dark:text-white uppercase tracking-wide">
-          Relatório de vendas (toda a conta)
+          Dashboard de vendas da equipe
         </h3>
         <p className="text-[11px] text-gray-500 dark:text-neutral-400">
-          VGV confirmado por pessoa que registou a venda no Pós-visita. “Sem responsável” = vendas sem{' '}
-          <code className="font-mono text-[10px]">ownerUserId</code>.
+          Valores confirmados no Pós-visita, agrupados pelo responsável que registrou a venda.
         </p>
+        <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-2">
+          <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/30 p-3">
+            <p className="text-[9px] font-black uppercase text-emerald-700 dark:text-emerald-400">VGV da equipe</p>
+            <p className="font-black text-emerald-700 dark:text-emerald-300 truncate">{formatBrlFull(relatorioVendas.totalVgv)}</p>
+          </div>
+          <div className="rounded-xl bg-violet-50 dark:bg-violet-950/30 p-3">
+            <p className="text-[9px] font-black uppercase text-violet-700 dark:text-violet-400">Comissão total</p>
+            <p className="font-black text-violet-700 dark:text-violet-300 truncate">{formatBrlFull(relatorioVendas.totalCommission)}</p>
+          </div>
+          <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 p-3">
+            <p className="text-[9px] font-black uppercase text-amber-700 dark:text-amber-400">Comissão pendente</p>
+            <p className="font-black text-amber-700 dark:text-amber-300 truncate">{formatBrlFull(relatorioVendas.totalPendingCommission)}</p>
+          </div>
+        </div>
         {relatorioVendas.totalN === 0 ? (
-          <p className="text-xs text-gray-400 py-2">Ainda não há vendas confirmadas no Pós-visita.</p>
-        ) : (
+          <p className="text-xs text-gray-400 py-2">Ainda não há vendas confirmadas; os membros continuam listados abaixo.</p>
+        ) : null}
+        {relatorioVendas.rows.length > 0 ? (
           <div className="overflow-x-auto -mx-1">
-            <table className="w-full text-left text-xs min-w-[280px]">
+            <table className="w-full text-left text-xs min-w-[620px]">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-neutral-700 text-[10px] uppercase text-gray-500">
-                  <th className="py-2 pr-3 font-bold">Quem registou</th>
-                  <th className="py-2 pr-3 font-bold text-right w-14">Nº</th>
-                  <th className="py-2 font-bold text-right">VGV</th>
+                  <th className="py-2 pr-3 font-bold">Responsável</th>
+                  <th className="py-2 pr-3 font-bold text-right">Vendas</th>
+                  <th className="py-2 pr-3 font-bold text-right">VGV</th>
+                  <th className="py-2 pr-3 font-bold text-right">Comissão</th>
+                  <th className="py-2 font-bold text-right">Pendente</th>
                 </tr>
               </thead>
               <tbody>
                 {relatorioVendas.rows.map((r) => (
-                  <tr
-                    key={r.uid}
-                    className="border-b border-gray-100 dark:border-neutral-800/80 align-top"
-                  >
-                    <td className="py-2.5 pr-3 font-semibold text-brand-dark dark:text-white">{r.nome}</td>
-                    <td className="py-2.5 pr-3 text-right text-gray-600 dark:text-neutral-400">{r.count}</td>
-                    <td className="py-2.5 text-right font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                      {formatBrlFull(r.vgv)}
+                  <tr key={r.uid} className="border-b border-gray-100 dark:border-neutral-800/80 align-top">
+                    <td className="py-2.5 pr-3 font-semibold text-brand-dark dark:text-white">
+                      {r.nome}
+                      {r.role ? <span className="block text-[9px] uppercase text-gray-400">{r.role === 'empresa' ? 'Master' : 'Corretor'}</span> : null}
                     </td>
+                    <td className="py-2.5 pr-3 text-right text-gray-600 dark:text-neutral-400">
+                      {r.count}{r.pendingCount ? <span className="block text-[9px] text-amber-600">+{r.pendingCount} pend.</span> : null}
+                    </td>
+                    <td className="py-2.5 pr-3 text-right font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">{formatBrlFull(r.vgv)}</td>
+                    <td className="py-2.5 pr-3 text-right font-bold text-violet-600 dark:text-violet-400 whitespace-nowrap">{formatBrlFull(r.commission)}</td>
+                    <td className="py-2.5 text-right font-semibold text-amber-600 whitespace-nowrap">{formatBrlFull(r.pendingCommission)}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr className="text-[11px] font-black text-brand-dark dark:text-white">
                   <td className="pt-3">Total</td>
-                  <td className="pt-3 text-right">{relatorioVendas.totalN}</td>
-                  <td className="pt-3 text-right text-emerald-600 dark:text-emerald-400">
-                    {formatBrlFull(relatorioVendas.totalVgv)}
-                  </td>
+                  <td className="pt-3 pr-3 text-right">{relatorioVendas.totalN}</td>
+                  <td className="pt-3 pr-3 text-right text-emerald-600 dark:text-emerald-400">{formatBrlFull(relatorioVendas.totalVgv)}</td>
+                  <td className="pt-3 pr-3 text-right text-violet-600 dark:text-violet-400">{formatBrlFull(relatorioVendas.totalCommission)}</td>
+                  <td className="pt-3 text-right text-amber-600">{formatBrlFull(relatorioVendas.totalPendingCommission)}</td>
                 </tr>
               </tfoot>
             </table>
           </div>
+        ) : (
+          <p className="text-xs text-gray-400 py-2">Nenhum membro ou venda para exibir.</p>
         )}
       </div>
 
@@ -172,7 +196,7 @@ export function EmpresaEquipaPanel({
         {corretores.map((c) => {
           const active = vistaCorretorAtivoId === c.id;
           const nVis = db.visitas.filter((v) => v.ownerUserId === c.id).length;
-          const nVen = (db.vendasCheckin ?? []).filter((v) => v.ownerUserId === c.id).length;
+          const desempenho = relatorioVendas.rows.find((row) => row.uid === c.id);
           return (
             <button
               key={c.id}
@@ -189,8 +213,17 @@ export function EmpresaEquipaPanel({
               </p>
               <p className="text-[10px] text-gray-400 dark:text-neutral-500 font-mono truncate mt-0.5">{c.id}</p>
               <p className="text-[11px] text-gray-500 dark:text-neutral-400 mt-2">
-                {nVis} visita(s) · {nVen} venda(s) — toque para abrir a vista completa
+                {nVis} visita(s) · {desempenho?.count ?? 0} venda(s) confirmada(s)
               </p>
+              <div className="grid grid-cols-2 gap-2 mt-2 text-[10px]">
+                <span className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 px-2 py-1.5 text-emerald-700 dark:text-emerald-300 font-bold truncate">
+                  VGV {formatBrlFull(desempenho?.vgv ?? 0)}
+                </span>
+                <span className="rounded-lg bg-violet-50 dark:bg-violet-950/30 px-2 py-1.5 text-violet-700 dark:text-violet-300 font-bold truncate">
+                  Comissão {formatBrlFull(desempenho?.commission ?? 0)}
+                </span>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-2">Toque para abrir a vista completa</p>
             </button>
           );
         })}

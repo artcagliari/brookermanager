@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  comissaoTotalConfirmada,
   normalizeDb,
   tituloImovel,
   vgvTotalConfirmado,
@@ -233,6 +234,10 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
   /** VGV = soma das vendas confirmadas no Pós-visita (valor do imóvel ou valor acordado), nunca o campo “valor” do lead. */
   const vgvCabecalho = useMemo(
     () => vgvTotalConfirmado(dbVisao.vendasCheckin ?? []),
+    [dbVisao.vendasCheckin]
+  );
+  const comissaoCabecalho = useMemo(
+    () => comissaoTotalConfirmada(dbVisao.vendasCheckin ?? []),
     [dbVisao.vendasCheckin]
   );
 
@@ -1167,7 +1172,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
         <div
           className={
             'grid gap-3 sm:gap-4 text-center ' +
-            (headerLight ? 'grid-cols-3' : 'grid-cols-2')
+            (headerLight ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-3')
           }
         >
           <div
@@ -1226,6 +1231,31 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
               }
             >
               Vendas no Pós-visita
+            </span>
+          </div>
+          <div
+            className={
+              'p-4 sm:p-5 rounded-[1.75rem] sm:rounded-[2rem] border overflow-hidden ' +
+              (headerLight
+                ? 'bg-hz-cream border-gray-100 dark:bg-neutral-800 dark:border-neutral-700'
+                : 'bg-white/5 border-white/10')
+            }
+          >
+            <span
+              className={
+                'block text-lg font-bold mb-1 truncate ' +
+                (headerLight ? 'text-violet-700 dark:text-violet-400' : 'text-violet-300')
+              }
+            >
+              {formatBrlFull(comissaoCabecalho)}
+            </span>
+            <span
+              className={
+                'text-[9px] uppercase font-bold tracking-widest ' +
+                (headerLight ? 'text-gray-500 dark:text-neutral-400' : 'text-gray-400')
+              }
+            >
+              Comissão total
             </span>
           </div>
           {headerLight ? (
