@@ -128,6 +128,7 @@ export type BrokerDb = {
 
 export type AppSection =
   | 'inicio'
+  | 'imoveis'
   | 'painel'
   | 'agenda'
   | 'clientes'

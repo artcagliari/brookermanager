@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { normalizeTipoImovel, primeiraFotoImovel, tituloImovel, type BrokerDb, type Imovel } from '../types';
 import { formatBrlFull } from '../utils';
-import { getBrokerSnapshot } from '../lib/brokerWorkflow';
 
 const CATEGORIAS_FILTRO = ['Todos', 'Apartamento', 'Casa'] as const;
 
@@ -13,11 +12,6 @@ type Props = {
   onRemoverImovel: (id: number) => void;
   /** Abre a agenda com hora e endereço já preenchidos a partir do imóvel */
   onAgendarVisita: (i: Imovel) => void;
-  onNovaVisita: () => void;
-  onNovoLead: () => void;
-  onAbrirAgenda: () => void;
-  onAbrirCrm: () => void;
-  onAbrirPosVisita: () => void;
 };
 
 export function HomeExplore({
@@ -27,14 +21,8 @@ export function HomeExplore({
   onNovoImovel,
   onRemoverImovel,
   onAgendarVisita,
-  onNovaVisita,
-  onNovoLead,
-  onAbrirAgenda,
-  onAbrirCrm,
-  onAbrirPosVisita,
 }: Props) {
   const imoveis = db.imoveis;
-  const snapshot = useMemo(() => getBrokerSnapshot(db), [db]);
   const [q, setQ] = useState('');
   const [tipoFiltro, setTipoFiltro] = useState<(typeof CATEGORIAS_FILTRO)[number]>('Todos');
   const [sort, setSort] = useState<'preco_asc' | 'preco_desc' | 'quartos' | 'recent'>('recent');
@@ -108,55 +96,13 @@ export function HomeExplore({
 
   return (
     <div className="space-y-8 pb-4">
-      <section className="overflow-hidden rounded-[2rem] bg-hz-ink text-white shadow-xl border border-white/5">
-        <div className="p-5 sm:p-7 space-y-5">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-300">Operação de hoje</p>
-              <h2 className="font-display text-3xl leading-tight mt-1">Seu painel de trabalho</h2>
-              <p className="text-xs text-white/60 mt-1">O que precisa de atenção agora, sem misturar com o catálogo.</p>
-            </div>
-            <span className="shrink-0 rounded-xl bg-white/10 px-3 py-2 text-xs font-bold tabular-nums">
-              {new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <button type="button" onClick={onAbrirAgenda} className="rounded-2xl bg-white/10 p-3 text-left hover:bg-white/15 transition-colors">
-              <strong className="block text-2xl text-emerald-300 tabular-nums">{snapshot.visitasHoje.length}</strong>
-              <span className="text-[10px] font-bold uppercase text-white/65">Visitas hoje</span>
-            </button>
-            <button type="button" onClick={onAbrirPosVisita} className="rounded-2xl bg-white/10 p-3 text-left hover:bg-white/15 transition-colors">
-              <strong className="block text-2xl text-amber-300 tabular-nums">{snapshot.followUps.length}</strong>
-              <span className="text-[10px] font-bold uppercase text-white/65">Retornos</span>
-            </button>
-            <button type="button" onClick={onNovoLead} className="rounded-2xl bg-white/10 p-3 text-left hover:bg-white/15 transition-colors">
-              <strong className="block text-2xl text-sky-300 tabular-nums">{snapshot.leadsAtivos}</strong>
-              <span className="text-[10px] font-bold uppercase text-white/65">Leads ativos</span>
-            </button>
-            <button type="button" onClick={onAbrirPosVisita} className="rounded-2xl bg-white/10 p-3 text-left hover:bg-white/15 transition-colors">
-              <strong className="block text-2xl text-violet-300 tabular-nums">{snapshot.vendasPendentes}</strong>
-              <span className="text-[10px] font-bold uppercase text-white/65">Vendas pendentes</span>
-            </button>
-          </div>
-
-          {snapshot.contatosAtrasados > 0 ? (
-            <button
-              type="button"
-              onClick={onAbrirCrm}
-              className="w-full rounded-xl border border-red-300/25 bg-red-400/10 px-4 py-3 text-left text-xs text-red-100"
-            >
-              <strong>{snapshot.contatosAtrasados} contato{snapshot.contatosAtrasados === 1 ? '' : 's'} atrasado{snapshot.contatosAtrasados === 1 ? '' : 's'}</strong>
-              <span className="block text-[10px] text-red-100/65 mt-0.5">Abra o CRM para reorganizar os retornos.</span>
-            </button>
-          ) : null}
-
-          <div className="grid grid-cols-3 gap-2">
-            <button type="button" onClick={onNovaVisita} className="min-h-[46px] rounded-xl bg-emerald-500 text-xs font-black">+ Visita</button>
-            <button type="button" onClick={onNovoLead} className="min-h-[46px] rounded-xl bg-white/10 text-xs font-black">+ Lead</button>
-            <button type="button" onClick={onNovoImovel} className="min-h-[46px] rounded-xl bg-white/10 text-xs font-black">+ Imóvel</button>
-          </div>
+      <section className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-hz-green dark:text-emerald-400">Portfólio</p>
+          <h2 className="text-3xl sm:text-4xl font-black tracking-tight text-hz-ink dark:text-white mt-1">Imóveis</h2>
+          <p className="text-sm text-gray-500 dark:text-neutral-400 mt-2">Catálogo compartilhado exclusivamente pela equipe da imobiliária.</p>
         </div>
+        <button type="button" onClick={onNovoImovel} className="min-h-[46px] px-5 rounded-xl bg-hz-green text-white font-black text-xs">+ Cadastrar imóvel</button>
       </section>
 
       <section className="space-y-3">
@@ -175,7 +121,7 @@ export function HomeExplore({
           </button>
         </div>
         <p className="text-[11px] text-gray-500 dark:text-neutral-400">
-          Catálogo compartilhado com toda a imobiliária · {snapshot.imoveisDisponiveis} disponível(is)
+          Catálogo compartilhado com toda a imobiliária · {imoveis.filter((item) => item.disponivel !== false).length} disponível(is)
         </p>
       </section>
 
@@ -250,7 +196,7 @@ export function HomeExplore({
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtrados.map((m) => (
             <article
               key={m.id}

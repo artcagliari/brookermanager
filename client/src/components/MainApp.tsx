@@ -52,6 +52,8 @@ import { ImovelSearchPicker } from './ImovelSearchPicker';
 import { EmpresaEquipaPanel } from './EmpresaEquipaPanel';
 import { PosVisitaPanel } from './PosVisitaPanel';
 import { PropostaOverlay, type PropostaDetalhes } from './PropostaOverlay';
+import { CrmDashboard } from './CrmDashboard';
+import { CrmNavigation, type CrmNavItem } from './CrmNavigation';
 
 type Props = {
   db: BrokerDb;
@@ -224,7 +226,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
     [profile.role, profile.id, equipaVistaCorretorId]
   );
 
-  /** VGV = soma das vendas confirmadas no Pós-visita (valor do imóvel ou valor acordado), nunca o campo “valor” do lead. */
+  // Mantido para compatibilidade do cabeçalho legado oculto durante a transição visual.
   const vgvCabecalho = useMemo(
     () => vgvTotalConfirmado(dbVisao.vendasCheckin ?? []),
     [dbVisao.vendasCheckin]
@@ -263,7 +265,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
   }, [iFotos]);
 
   useEffect(() => {
-    if (modalImovel && section !== 'inicio') setModalImovel(false);
+    if (modalImovel && section !== 'imoveis') setModalImovel(false);
   }, [section, modalImovel]);
 
   useEffect(() => {
@@ -324,7 +326,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
   }, []);
 
   useEffect(() => {
-    if (section !== 'inicio') return;
+    if (section !== 'imoveis') return;
     const p = pendingImovelRef.current;
     if (p == null) return;
     pendingImovelRef.current = null;
@@ -652,9 +654,9 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
   );
 
   const openNovoImovel = useCallback(() => {
-    if (section !== 'inicio') {
+    if (section !== 'imoveis') {
       pendingImovelRef.current = 'novo';
-      setSection('inicio');
+      setSection('imoveis');
       return;
     }
     resetNovoImovelFields();
@@ -663,9 +665,9 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
 
   const openEditImovel = useCallback(
     (m: Imovel) => {
-      if (section !== 'inicio') {
+      if (section !== 'imoveis') {
         pendingImovelRef.current = m;
-        setSection('inicio');
+        setSection('imoveis');
         return;
       }
       aplicarImovelNoForm(m);
@@ -1065,18 +1067,23 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
   );
   const rotaDiaUrl = googleMapsDirectionsUrl(visitasHojePainel);
 
-  const bottomTabs = useMemo((): [AppSection, string, string][] => {
-    const start: [AppSection, string, string][] = [
+  const navItems = useMemo((): CrmNavItem[] => {
+    const start: CrmNavItem[] = [
       [
         'inicio',
-        'Início',
+        'Visão geral',
         'M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25',
       ],
       [
-        'painel',
-        'Negócios',
-        'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01',
+        'clientes',
+        'CRM e funil',
+        'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z',
       ],
+      ['agenda', 'Agenda', 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z'],
+      ['imoveis', 'Imóveis', 'M3 21h18M5 21V9l7-6 7 6v12M9 21v-6h6v6'],
+      ['painel', 'Negócios', 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01'],
+      ['todo', 'Tarefas', 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4'],
+      ['calc', 'Simulador', 'M9 7h6m0 10v-3m-3 3h.01M9 17h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z'],
     ];
     if (profile.role === 'empresa') {
       start.push([
@@ -1085,20 +1092,6 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
         'M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a6.375 6.375 0 11-12.75 0 6.375 6.375 0 0112.75 0zm8.25 2.25a6.375 6.375 0 11-12.75 0 6.375 6.375 0 0112.75 0z',
       ]);
     }
-    start.push(
-      ['agenda', 'Agenda', 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z'],
-      [
-        'clientes',
-        'CRM',
-        'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z',
-      ],
-      ['calc', 'Simular', 'M9 7h6m0 10v-3m-3 3h.01M9 17h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z'],
-      [
-        'todo',
-        'Tarefas',
-        'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
-      ]
-    );
     return start;
   }, [profile.role]);
 
@@ -1108,16 +1101,27 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
   return (
     <div
       className={
-        'pb-32 min-h-screen text-brand-dark dark:text-neutral-100 ' +
+        'min-h-screen text-brand-dark dark:text-neutral-100 ' +
         (headerLight ? 'bg-hz-cream dark:bg-neutral-950' : 'bg-brand-light dark:bg-neutral-950')
       }
     >
       <a href="#conteudo-principal" className="skip-link">
         Ir para o conteúdo principal
       </a>
+      <CrmNavigation
+        items={navItems}
+        active={section}
+        nome={profile.nome_exibicao?.trim() || ''}
+        role={profile.role === 'empresa' ? 'empresa' : 'corretor'}
+        email={userEmail}
+        onNavigate={setSection}
+        onImport={() => importRef.current?.click()}
+        onExport={exportar}
+        onLogout={onLogout}
+      />
       <header
         className={
-          'no-print p-6 sm:p-8 rounded-b-[2.5rem] sm:rounded-b-[3rem] shadow-2xl ' +
+          'hidden no-print p-6 sm:p-8 rounded-b-[2.5rem] sm:rounded-b-[3rem] shadow-2xl ' +
           (headerLight
             ? 'bg-white text-hz-ink border-b border-gray-100 shadow-md dark:bg-neutral-900 dark:text-neutral-100 dark:border-neutral-800'
             : 'bg-brand-dark text-white dark:bg-neutral-950')
@@ -1326,7 +1330,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
       </header>
 
       {profile.role === 'empresa' && equipaVistaCorretorId ? (
-        <div className="container mx-auto px-4 sm:px-5 max-w-2xl -mt-2 mb-2 no-print">
+        <div className="px-4 sm:px-6 lg:pl-[17.5rem] pt-4 max-w-[96rem] mx-auto no-print">
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand-gold/50 bg-brand-gold/10 dark:bg-brand-gold/15 px-4 py-3">
             <div className="min-w-0">
               <p className="text-sm font-black text-brand-dark dark:text-white">
@@ -1350,9 +1354,22 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
       <main
         id="conteudo-principal"
         tabIndex={-1}
-        className="container mx-auto px-4 sm:px-5 mt-6 sm:mt-8 max-w-2xl no-print outline-none scroll-mt-24"
+        className="px-4 sm:px-6 lg:pl-[17.5rem] py-6 lg:py-8 max-w-[96rem] mx-auto no-print outline-none scroll-mt-24"
       >
         {section === 'inicio' ? (
+          <CrmDashboard
+            db={dbVisao}
+            nome={profile.nome_exibicao?.trim() || ''}
+            onOpenCrm={() => setSection('clientes')}
+            onOpenAgenda={() => setSection('agenda')}
+            onOpenNegocios={() => setSection('painel')}
+            onNewLead={openNovoCliente}
+            onNewVisit={openNovaVisita}
+            onNewProperty={openNovoImovel}
+          />
+        ) : null}
+
+        {section === 'imoveis' ? (
           <HomeExplore
             db={dbVisao}
             onToggleFavorito={toggleFavoritoImovel}
@@ -1360,11 +1377,6 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
             onNovoImovel={openNovoImovel}
             onRemoverImovel={(id) => remover('imoveis', id)}
             onAgendarVisita={agendarVisitaComImovel}
-            onNovaVisita={openNovaVisita}
-            onNovoLead={openNovoCliente}
-            onAbrirAgenda={() => setSection('agenda')}
-            onAbrirCrm={() => setSection('clientes')}
-            onAbrirPosVisita={() => setSection('painel')}
           />
         ) : null}
 
@@ -1712,6 +1724,9 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
               <div className="grid grid-cols-8 gap-1.5 overflow-x-auto pb-1" role="tablist" aria-label="Etapas do CRM">
                 {CRM_STAGE_ORDER.map((etapa, index) => {
                   const active = crmEtapa === etapa;
+                  const clientesDaEtapa = dbVisao.clientes.filter(
+                    (cliente) => getClientCrmStage(dbVisao, cliente) === etapa
+                  );
                   return (
                     <button
                       key={etapa}
@@ -1719,7 +1734,7 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                       role="tab"
                       aria-selected={active}
                       onClick={() => setCrmEtapa(etapa)}
-                      className={`relative min-w-[8.5rem] min-h-[102px] rounded-xl p-2.5 text-left border transition-colors ${
+                      className={`relative min-w-[10.5rem] min-h-[178px] rounded-xl p-2.5 text-left border transition-colors ${
                         active
                           ? 'border-brand-gold ring-2 ring-brand-gold/20 bg-brand-gold/5'
                           : 'border-gray-100 dark:border-neutral-800 bg-gray-50/70 dark:bg-neutral-800/50'
@@ -1733,6 +1748,16 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
                       </span>
                       <span className="block text-[9px] leading-tight text-gray-500 dark:text-neutral-400 mt-1">
                         {CRM_STAGE_DESCRIPTION[etapa]}
+                      </span>
+                      <span className="block mt-3 space-y-1.5">
+                        {clientesDaEtapa.slice(0, 3).map((cliente) => (
+                          <span key={cliente.id} className="block truncate rounded-lg bg-white dark:bg-neutral-900 border border-gray-100 dark:border-neutral-700 px-2 py-1.5 text-[10px] font-bold text-hz-ink dark:text-white shadow-sm">
+                            {cliente.nome}
+                          </span>
+                        ))}
+                        {clientesDaEtapa.length > 3 ? (
+                          <span className="block text-[9px] font-bold text-gray-400 px-1">+ {clientesDaEtapa.length - 3} oportunidade(s)</span>
+                        ) : null}
                       </span>
                       {index < CRM_STAGE_ORDER.length - 1 ? (
                         <span className="absolute -right-2 top-1/2 z-10 hidden sm:block text-gray-300 dark:text-neutral-600" aria-hidden>›</span>
@@ -2186,10 +2211,10 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
       />
 
       <nav
-        className="fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-neutral-950/95 backdrop-blur-xl border-t border-gray-100 dark:border-neutral-800 flex justify-around items-stretch pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] px-1 sm:px-4 z-40 no-print safe-pb"
+        className="hidden fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-neutral-950/95 backdrop-blur-xl border-t border-gray-100 dark:border-neutral-800 justify-around items-stretch pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] px-1 sm:px-4 z-40 no-print safe-pb"
         aria-label="Navegação principal"
       >
-        {bottomTabs.map(([id, label, d]) => {
+        {navItems.map(([id, label, d]) => {
           const active = section === id;
           const activeClass =
             section === 'inicio' && active ? 'active-tab-hz text-hz-green' : 'active-tab text-brand-gold';
