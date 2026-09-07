@@ -50,7 +50,19 @@ type CreateLoginInput = {
 
 async function invokeSuperAdmin<T>(body: Record<string, unknown>): Promise<T> {
   const sb = assertSupabase();
-  const { data, error } = await sb.functions.invoke('superadmin-admin', { body });
+  const {
+    data: { session },
+    error: sessionError,
+  } = await sb.auth.getSession();
+  if (sessionError) throw new Error(sessionError.message);
+  if (!session?.access_token) {
+    throw new Error('A sessão expirou. Saia e entre novamente para continuar.');
+  }
+
+  const { data, error } = await sb.functions.invoke('superadmin-admin', {
+    body,
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  });
   if (error) {
     let message = error.message;
     const context = (error as { context?: unknown }).context;
