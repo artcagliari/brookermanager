@@ -134,6 +134,27 @@ html.dark .skip-link:focus {
     @apply dark:border-neutral-700 dark:text-neutral-500;
   }
 
+  .crm-field-label {
+    @apply mb-1.5 block text-[9px] font-black uppercase tracking-wider text-gray-500 dark:text-neutral-400;
+  }
+
+  .crm-field {
+    @apply min-h-[46px] w-full rounded-xl border border-gray-200 bg-white px-3 text-sm text-hz-ink outline-none;
+    @apply focus:border-hz-green dark:border-neutral-700 dark:bg-neutral-800 dark:text-white;
+  }
+
+  textarea.crm-field {
+    @apply min-h-[96px] py-3;
+  }
+
+  .business-button {
+    @apply min-h-[42px] rounded-xl px-4 text-xs font-black;
+  }
+
+  .business-value {
+    @apply mt-2 block text-2xl font-black;
+  }
+
   .admin-page {
     @apply min-h-[100dvh] bg-gradient-to-b from-hz-cream via-white to-hz-sand text-hz-ink;
     @apply dark:from-neutral-950 dark:via-neutral-950 dark:to-neutral-900 dark:text-neutral-100;

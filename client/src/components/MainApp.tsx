@@ -11,7 +11,6 @@ import {
   type Imovel,
   type TipoImovel,
   type Visita,
-  type VendaCheckin,
 } from '../types';
 import type { BrokerProfile, TeamMemberProfile } from '../api';
 import { fetchTeamProfiles, putData } from '../api';
@@ -415,29 +414,6 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
       setLoadingGpsVisita(false);
     }
   }, []);
-
-  const registrarVendaNaAgenda = useCallback(
-    (venda: VendaCheckin, hora: string) => {
-      const im = db.imoveis.find((i) => i.id === venda.imovelId);
-      const comp = venda.comprador?.trim();
-      const cliente = comp
-        ? `Venda · ${comp} · ${formatBrlFull(venda.valorVenda)}`
-        : `Venda · ${formatBrlFull(venda.valorVenda)}`;
-      const payload: Omit<Visita, 'id'> = {
-        cliente,
-        clienteId: venda.clienteId,
-        hora: hora.trim() || '10:00',
-        data: venda.dataCheckin,
-        endereco: im ? enderecoParaVisitaDeImovel(im) : undefined,
-        imovelId: venda.imovelId,
-        funilEstado: 'realizada',
-        ownerUserId: venda.ownerUserId,
-      };
-      setDb((d) => ({ ...d, visitas: [...d.visitas, { ...payload, id: Date.now() }] }));
-      setSection('agenda');
-    },
-    [db.imoveis, setDb]
-  );
 
   const addVisitasFromAssistant = useCallback(
     (items: Omit<Visita, 'id'>[]) => {
@@ -1384,7 +1360,6 @@ export function MainApp({ db, setDb, onLogout, markSkipNextPersist, empresaId, p
           <PosVisitaPanel
             db={dbVisao}
             setDb={setDb}
-            onRegistrarNaAgenda={registrarVendaNaAgenda}
             currentUserId={effectiveOwnerUserId}
           />
         ) : null}

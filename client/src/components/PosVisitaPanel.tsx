@@ -1,824 +1,781 @@
-import { useMemo, useState, type Dispatch, type SetStateAction } from 'react';
-import type { BrokerDb, FunilVisita, Imovel, VendaCheckin, Visita } from '../types';
+import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import type { BrokerDb, Imovel, VendaCheckin, Visita } from "../types";
 import {
   COMISSAO_VENDA_PADRAO_PCT,
   comissaoTotalConfirmada,
   tituloImovel,
   valorComissaoVenda,
   vgvTotalConfirmado,
-} from '../types';
-import { clienteAgendaLabel, formatBrlFull, parseBrlNumber } from '../utils';
-import { todayISODate } from '../lib/datetimeAgenda';
-import { googleMapsDirectionsUrl, wazeMultiUrl } from '../lib/mapsRoute';
-import { downloadIcsForVisitas } from '../lib/calendarLinks';
-import { resolveSaleOwner } from '../lib/brokerWorkflow';
+} from "../types";
+import {
+  clienteAgendaLabel,
+  formatBrlFull,
+  maskBrlWhole,
+  parseBrlNumber,
+} from "../utils";
+import { todayISODate } from "../lib/datetimeAgenda";
+import { resolveSaleOwner } from "../lib/brokerWorkflow";
 
 type Props = {
   db: BrokerDb;
   setDb: Dispatch<SetStateAction<BrokerDb>>;
-  onRegistrarNaAgenda: (venda: VendaCheckin, hora: string) => void;
-  /** Auth user id — associa a venda ao corretor (vista Equipa). */
   currentUserId: string;
 };
+type Tab = "acompanhamento" | "fechamentos" | "comissoes";
+type Draft = { notas: string; proposta: string };
 
-const FUNIL_VISITA: { value: FunilVisita; label: string }[] = [
-  { value: 'agendada', label: 'Agendada' },
-  { value: 'realizada', label: 'Realizada' },
-  { value: 'proposta', label: 'Proposta' },
-  { value: 'cancelada', label: 'Cancelada' },
-];
+const brDate = (iso?: string) => {
+  if (!iso) return "Sem data";
+  const [y, m, d] = iso.split("-");
+  return y && m && d ? `${d}/${m}/${y}` : iso;
+};
 
-function imovelDe(db: BrokerDb, id: number): Imovel | undefined {
-  return db.imoveis.find((m) => m.id === id);
+function propertyById(db: BrokerDb, id: number): Imovel | undefined {
+  return db.imoveis.find((item) => item.id === id);
 }
 
-/** Texto único: situação, notas e proposta (para “resumo automático” da conversa). */
-function resumoConversa(v: Visita): string {
-  const estado =
-    FUNIL_VISITA.find((f) => f.value === (v.funilEstado ?? 'agendada'))?.label ?? '—';
-  const notas = (v.notasVisita ?? '').trim();
-  const proposta = (v.propostaVisita ?? '').trim();
-  const partes = [`Situação: ${estado}.`];
-  partes.push(notas ? `Conversa: ${notas.length > 140 ? notas.slice(0, 140) + '…' : notas}.` : 'Sem notas.');
-  if (proposta) partes.push(`Proposta: ${proposta.length > 120 ? proposta.slice(0, 120) + '…' : proposta}.`);
-  return partes.join(' ');
+function clientIdFromVisit(db: BrokerDb, visit: Visita): number | undefined {
+  if (visit.clienteId != null) return visit.clienteId;
+  return db.clientes.find(
+    (client) => clienteAgendaLabel(client) === visit.cliente.trim(),
+  )?.id;
 }
 
-function precoParaCampoValor(m: Imovel): string {
-  const p = Number(m.preco);
-  if (!Number.isFinite(p) || p <= 0) return '';
-  return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }).format(p);
-}
+export function PosVisitaPanel({ db, setDb, currentUserId }: Props) {
+  const sales = db.vendasCheckin ?? [];
+  const [tab, setTab] = useState<Tab>("acompanhamento");
+  const [openVisitId, setOpenVisitId] = useState<number | null>(null);
+  const [drafts, setDrafts] = useState<Record<number, Draft>>({});
+  const [search, setSearch] = useState("");
+  const [visitId, setVisitId] = useState<number | "">("");
+  const [propertyId, setPropertyId] = useState<number | "">("");
+  const [saleValue, setSaleValue] = useState("");
+  const [saleDate, setSaleDate] = useState(todayISODate());
+  const [buyer, setBuyer] = useState("");
 
-export function PosVisitaPanel({ db, setDb, onRegistrarNaAgenda, currentUserId }: Props) {
-  const hoje = todayISODate();
-  const vendas = db.vendasCheckin ?? [];
+  const soldVisitIds = useMemo(
+    () =>
+      new Set(sales.map((sale) => sale.visitaId).filter((id) => id != null)),
+    [sales],
+  );
+  const soldPropertyIds = useMemo(
+    () => new Set(sales.map((sale) => sale.imovelId)),
+    [sales],
+  );
 
-  const [sóApartamentos, setSóApartamentos] = useState(true);
-  const [imovelIdForm, setImovelIdForm] = useState<number | ''>('');
-  const [valorVendaStr, setValorVendaStr] = useState('');
-  const [dataCheckin, setDataCheckin] = useState(hoje);
-  const [comprador, setComprador] = useState('');
-  const [selVisitaId, setSelVisitaId] = useState<number | ''>('');
+  const followUps = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return [...db.visitas]
+      .filter(
+        (visit) =>
+          (visit.funilEstado === "realizada" ||
+            visit.funilEstado === "proposta") &&
+          !soldVisitIds.has(visit.id),
+      )
+      .filter((visit) => {
+        if (!term) return true;
+        const property =
+          visit.imovelId != null ? propertyById(db, visit.imovelId) : undefined;
+        return `${visit.cliente} ${visit.notasVisita ?? ""} ${visit.propostaVisita ?? ""} ${property ? tituloImovel(property) : ""}`
+          .toLowerCase()
+          .includes(term);
+      })
+      .sort((a, b) =>
+        `${b.data ?? ""}${b.hora}`.localeCompare(`${a.data ?? ""}${a.hora}`),
+      );
+  }, [db, search, soldVisitIds]);
 
-  const [agendaModal, setAgendaModal] = useState<VendaCheckin | null>(null);
-  const [agendaHora, setAgendaHora] = useState('10:00');
-  const [aba, setAba] = useState<'venda' | 'comissao'>('venda');
-  const [visitaAbertaId, setVisitaAbertaId] = useState<number | null>(null);
-
-  const imoveisVendidosIds = useMemo(() => new Set(vendas.map((v) => v.imovelId)), [vendas]);
-
-  const apartamentosDisponiveis = useMemo(() => {
-    return db.imoveis.filter((m) => {
-      if (m.disponivel === false) return false;
-      if (imoveisVendidosIds.has(m.id)) return false;
-      if (sóApartamentos && m.tipo !== 'Apartamento') return false;
-      return true;
-    });
-  }, [db.imoveis, imoveisVendidosIds, sóApartamentos]);
-
-  const visitasParaVincular = useMemo(
+  const eligibleVisits = useMemo(
     () =>
       [...db.visitas]
         .filter(
-          (v) =>
-            v.funilEstado !== 'cancelada' &&
-            !vendas.some((venda) => venda.visitaId === v.id)
+          (visit) =>
+            (visit.funilEstado === "realizada" ||
+              visit.funilEstado === "proposta") &&
+            !soldVisitIds.has(visit.id),
         )
-        .sort((a, b) => {
-          const da = a.data || '';
-          const db_ = b.data || '';
-          if (da !== db_) return db_.localeCompare(da);
-          return a.hora.localeCompare(b.hora);
-        }),
-    [db.visitas, vendas]
+        .sort((a, b) =>
+          `${b.data ?? ""}${b.hora}`.localeCompare(`${a.data ?? ""}${a.hora}`),
+        ),
+    [db.visitas, soldVisitIds],
   );
 
-  const visitaSelecionada = useMemo(() => {
-    if (selVisitaId === '') return null;
-    return db.visitas.find((v) => v.id === selVisitaId) ?? null;
-  }, [selVisitaId, db.visitas]);
-
-  const clienteIdDaVisita = (vis: Visita): number | undefined => {
-    if (vis.clienteId != null && Number.isFinite(vis.clienteId)) return vis.clienteId;
-    const match = db.clientes.find((c) => clienteAgendaLabel(c) === vis.cliente.trim());
-    return match?.id;
-  };
-
-  /** Pós-visita editável enquanto estiver realizada ou em proposta. */
-  const visitasFollowUp = useMemo(() => {
-    return [...db.visitas]
-      .filter((v) => v.funilEstado === 'realizada' || v.funilEstado === 'proposta')
-      .sort((a, b) => {
-        const da = a.data || '';
-        const db_ = b.data || '';
-        if (da !== db_) return db_.localeCompare(da);
-        return b.hora.localeCompare(a.hora);
-      });
-  }, [db.visitas]);
-
-  const vgv = useMemo(() => vgvTotalConfirmado(vendas), [vendas]);
-  const pendentesValor = useMemo(
+  const selectedVisit =
+    visitId === ""
+      ? null
+      : (db.visitas.find((visit) => visit.id === visitId) ?? null);
+  const availableProperties = useMemo(
     () =>
-      vendas
-        .filter((v) => v.vendaConfirmada === false)
-        .reduce((s, v) => s + Math.max(0, v.valorVenda), 0),
-    [vendas]
+      db.imoveis.filter(
+        (property) =>
+          property.disponivel !== false && !soldPropertyIds.has(property.id),
+      ),
+    [db.imoveis, soldPropertyIds],
   );
-  const comissaoConfirmada = useMemo(() => comissaoTotalConfirmada(vendas), [vendas]);
-  const comissaoPendente = useMemo(
-    () =>
-      vendas
-        .filter((v) => v.vendaConfirmada === false)
-        .reduce((s, v) => s + valorComissaoVenda(v), 0),
-    [vendas]
+  const pendingSales = sales.filter((sale) => sale.vendaConfirmada === false);
+  const confirmedSales = sales.filter((sale) => sale.vendaConfirmada !== false);
+  const vgv = vgvTotalConfirmado(sales);
+  const commission = comissaoTotalConfirmada(sales);
+  const pendingCommission = pendingSales.reduce(
+    (sum, sale) => sum + valorComissaoVenda(sale),
+    0,
+  );
+  const pendingVgv = pendingSales.reduce(
+    (sum, sale) => sum + sale.valorVenda,
+    0,
+  );
+  const proposals = followUps.filter(
+    (visit) => visit.funilEstado === "proposta",
+  ).length;
+  const sortedSales = [...sales].sort(
+    (a, b) => b.dataCheckin.localeCompare(a.dataCheckin) || b.id - a.id,
   );
 
-  const previewComissaoForm = useMemo(() => {
-    const v = parseBrlNumber(valorVendaStr);
-    if (!Number.isFinite(v) || v <= 0) return 0;
-    return (v * COMISSAO_VENDA_PADRAO_PCT) / 100;
-  }, [valorVendaStr]);
-
-  const visitasHoje = useMemo(
-    () => db.visitas.filter((v) => v.data === hoje && v.funilEstado !== 'cancelada'),
-    [db.visitas, hoje]
-  );
-  const rotaGoogle = googleMapsDirectionsUrl(visitasHoje);
-  const rotaWaze = wazeMultiUrl(visitasHoje);
-
-  const patchVisita = (id: number, patch: Partial<Visita>) => {
-    setDb((d) => ({
-      ...d,
-      visitas: d.visitas.map((v) => (v.id === id ? { ...v, ...patch } : v)),
-    }));
-  };
-
-  const salvarVenda = () => {
-    if (selVisitaId === '') {
-      alert('Escolha a visita na agenda — a venda fica ligada ao lead dessa visita.');
-      return;
-    }
-    const vis = db.visitas.find((x) => x.id === selVisitaId);
-    if (!vis) return;
-    if (vendas.some((venda) => venda.visitaId === vis.id)) {
-      alert('Esta visita já possui uma venda registrada. Remova o registro existente antes de criar outro.');
-      return;
-    }
-    let imovelIdNum: number;
-    if (imovelIdForm !== '') {
-      imovelIdNum = Number(imovelIdForm);
-    } else if (vis.imovelId != null && Number.isFinite(vis.imovelId)) {
-      imovelIdNum = vis.imovelId;
-    } else {
-      alert('Escolha o imóvel vendido (esta visita não tinha imóvel na agenda).');
-      return;
-    }
-    const valorVenda = parseBrlNumber(valorVendaStr);
-    if (!Number.isFinite(valorVenda) || valorVenda <= 0) {
-      alert('Indique o valor da venda.');
-      return;
-    }
-    if (vendas.some((venda) => venda.imovelId === imovelIdNum)) {
-      alert('Este imóvel já possui uma venda registrada. Verifique a lista de vendas antes de continuar.');
-      return;
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dataCheckin)) {
-      alert('Data inválida.');
-      return;
-    }
-    const cid = clienteIdDaVisita(vis);
-    const novo: VendaCheckin = {
-      id: Date.now(),
-      imovelId: imovelIdNum,
-      valorVenda,
-      comissaoPct: COMISSAO_VENDA_PADRAO_PCT,
-      dataCheckin,
-      comprador: comprador.trim() || undefined,
-      clienteId: cid,
-      visitaId: Number(selVisitaId),
-      vendaConfirmada: false,
-      ownerUserId: resolveSaleOwner(vis, currentUserId),
+  const draftFor = (visit: Visita): Draft =>
+    drafts[visit.id] ?? {
+      notas: visit.notasVisita ?? "",
+      proposta: visit.propostaVisita ?? "",
     };
-    setDb((d) => ({
-      ...d,
-      vendasCheckin: [...(d.vendasCheckin ?? []), novo],
+  const updateDraft = (visit: Visita, patch: Partial<Draft>) =>
+    setDrafts((current) => ({
+      ...current,
+      [visit.id]: { ...draftFor(visit), ...patch },
     }));
-    setImovelIdForm('');
-    setValorVendaStr('');
-    setComprador('');
-    setSelVisitaId('');
+
+  const saveFollowUp = (visit: Visita, stage: "realizada" | "proposta") => {
+    const draft = draftFor(visit);
+    if (stage === "proposta" && !draft.proposta.trim()) {
+      alert("Descreva as condições da proposta antes de avançar.");
+      return;
+    }
+    setDb((current) => ({
+      ...current,
+      visitas: current.visitas.map((item) =>
+        item.id === visit.id
+          ? {
+              ...item,
+              funilEstado: stage,
+              notasVisita: draft.notas.trim() || undefined,
+              propostaVisita: draft.proposta.trim() || undefined,
+            }
+          : item,
+      ),
+    }));
+    setDrafts((current) => {
+      const next = { ...current };
+      delete next[visit.id];
+      return next;
+    });
+    setOpenVisitId(null);
   };
 
-  const confirmarVendaNoVgv = (id: number) => {
-    setDb((d) => {
-      const venda = (d.vendasCheckin ?? []).find((x) => x.id === id);
-      const vendasCheckin = (d.vendasCheckin ?? []).map((v) =>
-        v.id === id ? { ...v, vendaConfirmada: true } : v
-      );
-      const imoveis =
-        venda != null
-          ? d.imoveis.map((m) =>
-              m.id === venda.imovelId ? { ...m, disponivel: false } : m
+  const cancelVisit = (visit: Visita) => {
+    if (
+      !confirm("Cancelar esta visita? O cliente continuará disponível no CRM.")
+    )
+      return;
+    setDb((current) => ({
+      ...current,
+      visitas: current.visitas.map((item) =>
+        item.id === visit.id ? { ...item, funilEstado: "cancelada" } : item,
+      ),
+    }));
+    setOpenVisitId(null);
+  };
+
+  const selectVisit = (raw: string) => {
+    if (!raw) {
+      setVisitId("");
+      setPropertyId("");
+      setSaleValue("");
+      setBuyer("");
+      return;
+    }
+    const id = Number(raw);
+    const visit = db.visitas.find((item) => item.id === id);
+    if (!visit) return;
+    setVisitId(id);
+    setBuyer((visit.cliente.split("(")[0] ?? visit.cliente).trim());
+    if (visit.imovelId != null) {
+      const property = propertyById(db, visit.imovelId);
+      setPropertyId(visit.imovelId);
+      setSaleValue(property?.preco ? maskBrlWhole(property.preco) : "");
+    } else {
+      setPropertyId("");
+      setSaleValue("");
+    }
+  };
+
+  const prepareSaleFromVisit = (visit: Visita) => {
+    const draft = draftFor(visit);
+    setDb((current) => ({
+      ...current,
+      visitas: current.visitas.map((item) =>
+        item.id === visit.id
+          ? {
+              ...item,
+              funilEstado: draft.proposta.trim() ? "proposta" : item.funilEstado,
+              notasVisita: draft.notas.trim() || item.notasVisita,
+              propostaVisita: draft.proposta.trim() || item.propostaVisita,
+            }
+          : item,
+      ),
+    }));
+    setTab("fechamentos");
+    selectVisit(String(visit.id));
+  };
+
+  const createSale = () => {
+    if (!selectedVisit) {
+      alert("Selecione uma visita realizada ou com proposta.");
+      return;
+    }
+    const finalPropertyId =
+      propertyId === "" ? selectedVisit.imovelId : Number(propertyId);
+    if (finalPropertyId == null || !Number.isFinite(finalPropertyId)) {
+      alert("Selecione o imóvel negociado.");
+      return;
+    }
+    if (soldPropertyIds.has(finalPropertyId)) {
+      alert("Este imóvel já possui um fechamento registrado.");
+      return;
+    }
+    const value = parseBrlNumber(saleValue);
+    if (value <= 0) {
+      alert("Informe o valor final da venda.");
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(saleDate)) {
+      alert("Informe uma data válida.");
+      return;
+    }
+    const sale: VendaCheckin = {
+      id: Date.now(),
+      imovelId: finalPropertyId,
+      valorVenda: value,
+      comissaoPct: COMISSAO_VENDA_PADRAO_PCT,
+      dataCheckin: saleDate,
+      comprador: buyer.trim() || undefined,
+      clienteId: clientIdFromVisit(db, selectedVisit),
+      visitaId: selectedVisit.id,
+      vendaConfirmada: false,
+      ownerUserId: resolveSaleOwner(selectedVisit, currentUserId),
+    };
+    setDb((current) => ({
+      ...current,
+      vendasCheckin: [...(current.vendasCheckin ?? []), sale],
+    }));
+    setVisitId("");
+    setPropertyId("");
+    setSaleValue("");
+    setBuyer("");
+  };
+
+  const confirmSale = (id: number) => {
+    if (!confirm("Confirmar no VGV e retirar o imóvel dos disponíveis?"))
+      return;
+    setDb((current) => {
+      const sale = (current.vendasCheckin ?? []).find((item) => item.id === id);
+      return {
+        ...current,
+        vendasCheckin: (current.vendasCheckin ?? []).map((item) =>
+          item.id === id ? { ...item, vendaConfirmada: true } : item,
+        ),
+        imoveis: sale
+          ? current.imoveis.map((property) =>
+              property.id === sale.imovelId
+                ? { ...property, disponivel: false }
+                : property,
             )
-          : d.imoveis;
-      return { ...d, vendasCheckin, imoveis };
+          : current.imoveis,
+      };
     });
   };
 
-  const removerVenda = (id: number) => {
-    if (!confirm('Remover este registo de venda?')) return;
-    setDb((d) => {
-      const rem = (d.vendasCheckin ?? []).find((x) => x.id === id);
-      const vendasCheckin = (d.vendasCheckin ?? []).filter((x) => x.id !== id);
-      if (!rem) return { ...d, vendasCheckin };
-      const aindaTemConfirmada = vendasCheckin.some(
-        (x) => x.imovelId === rem.imovelId && x.vendaConfirmada !== false
+  const deleteSale = (id: number) => {
+    if (
+      !confirm(
+        "Excluir este fechamento e recalcular a disponibilidade do imóvel?",
+      )
+    )
+      return;
+    setDb((current) => {
+      const removed = (current.vendasCheckin ?? []).find(
+        (item) => item.id === id,
       );
-      const imoveis = aindaTemConfirmada
-        ? d.imoveis
-        : d.imoveis.map((m) =>
-            m.id === rem.imovelId ? { ...m, disponivel: true } : m
-          );
-      return { ...d, vendasCheckin, imoveis };
+      const vendasCheckin = (current.vendasCheckin ?? []).filter(
+        (item) => item.id !== id,
+      );
+      const stillSold = removed
+        ? vendasCheckin.some(
+            (item) =>
+              item.imovelId === removed.imovelId &&
+              item.vendaConfirmada !== false,
+          )
+        : false;
+      return {
+        ...current,
+        vendasCheckin,
+        imoveis:
+          removed && !stillSold
+            ? current.imoveis.map((property) =>
+                property.id === removed.imovelId
+                  ? { ...property, disponivel: true }
+                  : property,
+              )
+            : current.imoveis,
+      };
     });
   };
 
   return (
-    <section className="space-y-8 pb-4" aria-labelledby="heading-posvisita">
+    <section className="space-y-6" aria-labelledby="business-title">
       <div>
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-600 dark:text-violet-400">
+          Operações comerciais
+        </p>
         <h2
-          id="heading-posvisita"
-          className="text-2xl font-bold tracking-tighter italic text-brand-dark dark:text-white"
+          id="business-title"
+          className="text-3xl sm:text-4xl font-black tracking-tight mt-1"
         >
-          Central de <span className="text-brand-gold not-italic">negócios</span>
+          Negócios
         </h2>
-        <p className="text-xs text-gray-500 dark:text-neutral-400 mt-1">
-          Marque na agenda a visita como <strong className="text-brand-dark dark:text-white">Realizada</strong> para
-          aparecer em “como foi”. O <strong>VGV</strong> soma só vendas confirmadas aqui — valor ao preço do imóvel ou
-          valor acordado na venda, nunca o campo de estimativa do lead.
+        <p className="text-sm text-gray-500 dark:text-neutral-400 mt-2 max-w-2xl">
+          Da visita à comissão: acompanhe, proponha e feche sem repetir
+          informações.
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white dark:bg-neutral-900 rounded-2xl p-4 border border-gray-100 dark:border-neutral-800 shadow-sm col-span-2 sm:col-span-1">
-          <p className="text-[9px] font-black uppercase text-gray-400 dark:text-neutral-500">VGV confirmado</p>
-          <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{formatBrlFull(vgv)}</p>
-          <p className="text-[10px] text-gray-400 dark:text-neutral-500 mt-1 leading-tight">
-            Soma dos valores registados e confirmados (imóvel ou acordo).
-          </p>
-        </div>
-        <div className="bg-white dark:bg-neutral-900 rounded-2xl p-4 border border-gray-100 dark:border-neutral-800 shadow-sm">
-          <p className="text-[9px] font-black uppercase text-gray-400 dark:text-neutral-500">Pendente confirmação</p>
-          <p className="text-xl font-black text-amber-600 dark:text-amber-400">{formatBrlFull(pendentesValor)}</p>
-        </div>
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+        <button
+          onClick={() => setTab("acompanhamento")}
+          className="crm-metric-card text-left"
+        >
+          <span className="crm-metric-label">Aguardando retorno</span>
+          <strong className="crm-metric-value text-amber-600">
+            {followUps.length}
+          </strong>
+          <small>{proposals} em proposta</small>
+        </button>
+        <button
+          onClick={() => setTab("fechamentos")}
+          className="crm-metric-card text-left"
+        >
+          <span className="crm-metric-label">Vendas pendentes</span>
+          <strong className="crm-metric-value text-blue-600">
+            {pendingSales.length}
+          </strong>
+          <small>{formatBrlFull(pendingVgv)} para confirmar</small>
+        </button>
+        <button
+          onClick={() => setTab("fechamentos")}
+          className="crm-metric-card text-left"
+        >
+          <span className="crm-metric-label">VGV confirmado</span>
+          <strong className="block text-xl sm:text-2xl font-black text-emerald-600 mt-3 truncate">
+            {formatBrlFull(vgv)}
+          </strong>
+          <small>{confirmedSales.length} venda(s)</small>
+        </button>
+        <button
+          onClick={() => setTab("comissoes")}
+          className="crm-metric-card text-left"
+        >
+          <span className="crm-metric-label">Comissão</span>
+          <strong className="block text-xl sm:text-2xl font-black text-violet-600 mt-3 truncate">
+            {formatBrlFull(commission)}
+          </strong>
+          <small>{formatBrlFull(pendingCommission)} pendente</small>
+        </button>
       </div>
 
       <div
-        className="flex rounded-2xl border border-gray-200 dark:border-neutral-700 p-1 gap-1 bg-gray-50/80 dark:bg-neutral-900/50"
+        className="flex gap-1 overflow-x-auto rounded-xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-1"
         role="tablist"
-        aria-label="Secções: venda e comissão"
       >
-        <button
-          type="button"
-          role="tab"
-          id="tab-pos-venda"
-          aria-selected={aba === 'venda'}
-          aria-controls="panel-pos-venda"
-          onClick={() => setAba('venda')}
-          className={`flex-1 min-h-[48px] py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-colors ${
-            aba === 'venda'
-              ? 'bg-white dark:bg-neutral-800 text-brand-dark dark:text-white shadow-sm'
-              : 'text-gray-500 dark:text-neutral-400'
-          }`}
-        >
-          Venda
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-pos-comissao"
-          aria-selected={aba === 'comissao'}
-          aria-controls="panel-pos-comissao"
-          onClick={() => setAba('comissao')}
-          className={`flex-1 min-h-[48px] py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-colors ${
-            aba === 'comissao'
-              ? 'bg-white dark:bg-neutral-800 text-brand-dark dark:text-white shadow-sm'
-              : 'text-gray-500 dark:text-neutral-400'
-          }`}
-        >
-          Comissão ({COMISSAO_VENDA_PADRAO_PCT}%)
-        </button>
+        {(
+          [
+            ["acompanhamento", "1. Acompanhamento"],
+            ["fechamentos", "2. Fechamentos"],
+            ["comissoes", "3. Comissões"],
+          ] as [Tab, string][]
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => setTab(id)}
+            className={`shrink-0 flex-1 min-w-[145px] min-h-[44px] rounded-lg px-4 text-xs font-black ${tab === id ? "bg-brand-dark text-brand-gold dark:bg-neutral-800" : "text-gray-500"}`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
-      {aba === 'venda' ? (
-        <div id="panel-pos-venda" role="tabpanel" aria-labelledby="tab-pos-venda" className="space-y-8">
-      <div className="bg-gradient-to-br from-emerald-50 to-white dark:from-emerald-950/25 dark:to-neutral-900 rounded-[2rem] p-6 border border-emerald-200/60 dark:border-emerald-800/40 space-y-4">
-        <h3 className="font-bold text-brand-dark dark:text-white">Nova venda (entra no VGV após confirmar)</h3>
-        <p className="text-[11px] text-gray-500 dark:text-neutral-400">
-          Escolha <strong className="text-brand-dark dark:text-white">uma visita da agenda</strong> — o lead, o imóvel
-          (se já estiver na visita) e o valor sugerido vêm daí. Ajuste só o valor se for negócio diferente do preço de
-          tabela.
-        </p>
-        <div className="space-y-3">
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 dark:text-neutral-500 uppercase tracking-widest ml-1">
-              Visita na agenda (obrigatório)
-            </label>
-            <select
-              value={selVisitaId === '' ? '' : String(selVisitaId)}
-              onChange={(e) => {
-                const raw = e.target.value;
-                if (!raw) {
-                  setSelVisitaId('');
-                  setImovelIdForm('');
-                  setValorVendaStr('');
-                  setComprador('');
-                  return;
-                }
-                const id = Number(raw);
-                const vis = db.visitas.find((x) => x.id === id);
-                if (!vis) return;
-                setSelVisitaId(id);
-                if (vis.imovelId != null && Number.isFinite(vis.imovelId)) {
-                  setImovelIdForm(vis.imovelId);
-                  const im = imovelDe(db, vis.imovelId);
-                  if (im) setValorVendaStr(precoParaCampoValor(im));
-                } else {
-                  setImovelIdForm('');
-                  setValorVendaStr('');
-                }
-                const nomeCurto = (vis.cliente.split('(')[0] ?? vis.cliente).trim();
-                setComprador(nomeCurto);
-              }}
-              className="w-full mt-1 p-4 rounded-2xl bg-white dark:bg-neutral-800 dark:text-white border border-gray-200 dark:border-neutral-700 font-semibold outline-none min-h-[48px]"
-            >
-              <option value="">Escolha data/hora e lead…</option>
-              {visitasParaVincular.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {(v.data ?? '')} {v.hora} · {v.cliente.slice(0, 42)}
-                  {v.cliente.length > 42 ? '…' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {visitaSelecionada ? (
-            <div className="rounded-2xl border border-emerald-200/80 dark:border-emerald-800/50 bg-white/80 dark:bg-neutral-900/80 px-4 py-3 space-y-2 text-sm">
-              <p className="text-[10px] font-black uppercase text-emerald-800 dark:text-emerald-200 tracking-wide">
-                Dados da visita (agenda → lead)
-              </p>
-              <p className="text-brand-dark dark:text-white">
-                <span className="text-gray-500 dark:text-neutral-400 font-semibold">Lead:</span>{' '}
-                {visitaSelecionada.cliente}
-              </p>
-              {comprador ? (
-                <p className="text-xs text-gray-600 dark:text-neutral-300">
-                  <span className="text-gray-500 font-semibold">Comprador (nome curto):</span> {comprador}
-                </p>
-              ) : null}
-              {visitaSelecionada.imovelId != null && imovelDe(db, visitaSelecionada.imovelId) ? (
-                <p className="text-xs text-gray-700 dark:text-neutral-200">
-                  <span className="text-gray-500 font-semibold">Imóvel na agenda:</span>{' '}
-                  {tituloImovel(imovelDe(db, visitaSelecionada.imovelId)!)}
-                </p>
-              ) : (
-                <p className="text-xs text-amber-800 dark:text-amber-200">
-                  Esta visita não tem imóvel ligado na agenda — escolha o imóvel vendido abaixo.
-                </p>
-              )}
-            </div>
-          ) : null}
-        </div>
-
-        {visitaSelecionada && (visitaSelecionada.imovelId == null || !Number.isFinite(visitaSelecionada.imovelId)) ? (
-          <>
-            <label className="flex items-center gap-2 text-xs font-bold text-gray-600 dark:text-neutral-400 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={sóApartamentos}
-                onChange={(e) => setSóApartamentos(e.target.checked)}
-                className="rounded border-gray-300 text-hz-green focus:ring-hz-green"
-              />
-              Só apartamentos na lista (desmarque para casas)
-            </label>
+      {tab === "acompanhamento" ? (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
             <div>
-              <label className="text-[10px] font-bold text-gray-400 dark:text-neutral-500 uppercase tracking-widest ml-1">
-                Imóvel vendido
+              <h3 className="font-black text-lg">Retorno das visitas</h3>
+              <p className="text-xs text-gray-500">
+                Use rascunho e salve apenas quando terminar.
+              </p>
+            </div>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar cliente ou imóvel"
+              className="crm-field sm:max-w-xs"
+            />
+          </div>
+          {followUps.length === 0 ? (
+            <p className="crm-empty">
+              Nenhuma visita aguardando acompanhamento.
+            </p>
+          ) : (
+            <div className="grid xl:grid-cols-2 gap-3">
+              {followUps.map((visit) => {
+                const open = openVisitId === visit.id;
+                const draft = draftFor(visit);
+                const property =
+                  visit.imovelId != null
+                    ? propertyById(db, visit.imovelId)
+                    : undefined;
+                return (
+                  <article
+                    key={visit.id}
+                    className="crm-panel !p-0 overflow-hidden"
+                  >
+                    <button
+                      onClick={() => setOpenVisitId(open ? null : visit.id)}
+                      className="w-full p-4 flex items-start justify-between gap-3 text-left"
+                    >
+                      <span className="min-w-0">
+                        <span className="flex gap-2 items-center flex-wrap">
+                          <strong className="truncate">{visit.cliente}</strong>
+                          <span
+                            className={`rounded-lg px-2 py-1 text-[9px] font-black uppercase ${visit.funilEstado === "proposta" ? "bg-violet-100 text-violet-700" : "bg-amber-100 text-amber-700"}`}
+                          >
+                            {visit.funilEstado === "proposta"
+                              ? "Proposta"
+                              : "Pós-visita"}
+                          </span>
+                        </span>
+                        <small className="block text-gray-400 mt-1">
+                          {brDate(visit.data)} às {visit.hora}
+                          {property ? ` · ${tituloImovel(property)}` : ""}
+                        </small>
+                      </span>
+                      <span className="text-xl text-gray-400">
+                        {open ? "−" : "+"}
+                      </span>
+                    </button>
+                    {open ? (
+                      <div className="border-t border-gray-100 dark:border-neutral-800 p-4 space-y-3">
+                        <div>
+                          <label className="crm-field-label">
+                            Como foi a visita
+                          </label>
+                          <textarea
+                            className="crm-field"
+                            rows={4}
+                            value={draft.notas}
+                            onChange={(e) =>
+                              updateDraft(visit, { notas: e.target.value })
+                            }
+                            placeholder="Interesse, objeções e próximo passo…"
+                          />
+                        </div>
+                        <div>
+                          <label className="crm-field-label">
+                            Proposta concreta
+                          </label>
+                          <textarea
+                            className="crm-field"
+                            rows={4}
+                            value={draft.proposta}
+                            onChange={(e) =>
+                              updateDraft(visit, { proposta: e.target.value })
+                            }
+                            placeholder="Valor, entrada, prazo e condições…"
+                          />
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => saveFollowUp(visit, "realizada")}
+                            className="business-button bg-amber-500 text-white"
+                          >
+                            Salvar retorno
+                          </button>
+                          <button
+                            onClick={() => saveFollowUp(visit, "proposta")}
+                            className="business-button bg-violet-600 text-white"
+                          >
+                            Avançar proposta
+                          </button>
+                          <button
+                            onClick={() => prepareSaleFromVisit(visit)}
+                            className="business-button bg-emerald-600 text-white"
+                          >
+                            Registrar venda
+                          </button>
+                          <button
+                            onClick={() => cancelVisit(visit)}
+                            className="business-button ml-auto text-red-500"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {tab === "fechamentos" ? (
+        <div className="grid xl:grid-cols-[minmax(340px,.85fr)_minmax(0,1.4fr)] gap-5 items-start">
+          <div className="crm-panel space-y-4 xl:sticky xl:top-6">
+            <div>
+              <h3 className="font-black text-lg">Registrar fechamento</h3>
+              <p className="text-xs text-gray-500">
+                Os dados são puxados da visita automaticamente.
+              </p>
+            </div>
+            <div>
+              <label className="crm-field-label">
+                Visita realizada / proposta
               </label>
               <select
-                value={imovelIdForm === '' ? '' : String(imovelIdForm)}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  if (!raw) {
-                    setImovelIdForm('');
-                    setValorVendaStr('');
-                    return;
-                  }
-                  const id = Number(raw);
-                  setImovelIdForm(id);
-                  const m = db.imoveis.find((x) => x.id === id);
-                  if (m) setValorVendaStr(precoParaCampoValor(m));
-                }}
-                className="w-full mt-1 p-4 rounded-2xl bg-white dark:bg-neutral-800 dark:text-white border border-gray-200 dark:border-neutral-700 font-semibold outline-none min-h-[48px]"
+                value={visitId}
+                onChange={(e) => selectVisit(e.target.value)}
+                className="crm-field"
               >
                 <option value="">Selecione…</option>
-                {apartamentosDisponiveis.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.tipo === 'Apartamento' ? '🏢' : '🏠'} {tituloImovel(m)} — {formatBrlFull(m.preco)}
+                {eligibleVisits.map((visit) => (
+                  <option key={visit.id} value={visit.id}>
+                    {brDate(visit.data)} · {visit.cliente.slice(0, 45)}
                   </option>
                 ))}
               </select>
             </div>
-          </>
-        ) : null}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 dark:text-neutral-500 uppercase tracking-widest ml-1">
-              Valor da venda (R$) — imóvel ou acordado
-            </label>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={valorVendaStr}
-              onChange={(e) => {
-                const value = parseBrlNumber(e.target.value);
-                setValorVendaStr(
-                  value > 0
-                    ? new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }).format(value)
-                    : ''
-                );
-              }}
-              placeholder="Vem do imóvel; altere só se o valor acordado for outro"
-              className="w-full mt-1 p-4 rounded-2xl bg-white dark:bg-neutral-800 dark:text-white border border-gray-200 dark:border-neutral-700 font-bold outline-none min-h-[48px]"
-            />
+            {selectedVisit ? (
+              <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/20 p-3 text-xs">
+                <strong className="text-emerald-700">
+                  Oportunidade vinculada
+                </strong>
+                <span className="block mt-1">{selectedVisit.cliente}</span>
+              </div>
+            ) : null}
+            <div>
+              <label className="crm-field-label">Imóvel</label>
+              <select
+                disabled={!selectedVisit}
+                value={propertyId}
+                onChange={(e) => {
+                  const id = e.target.value ? Number(e.target.value) : "";
+                  setPropertyId(id);
+                  const property =
+                    typeof id === "number" ? propertyById(db, id) : undefined;
+                  setSaleValue(
+                    property?.preco ? maskBrlWhole(property.preco) : "",
+                  );
+                }}
+                className="crm-field disabled:opacity-50"
+              >
+                <option value="">Selecione…</option>
+                {availableProperties.map((property) => (
+                  <option key={property.id} value={property.id}>
+                    {tituloImovel(property)} · {formatBrlFull(property.preco)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="crm-field-label">Comprador</label>
+              <input
+                disabled={!selectedVisit}
+                value={buyer}
+                onChange={(e) => setBuyer(e.target.value)}
+                className="crm-field disabled:opacity-50"
+              />
+            </div>
+            <div className="grid sm:grid-cols-2 xl:grid-cols-1 gap-3">
+              <div>
+                <label className="crm-field-label">Valor final</label>
+                <input
+                  disabled={!selectedVisit}
+                  inputMode="numeric"
+                  value={saleValue}
+                  onChange={(e) => setSaleValue(maskBrlWhole(e.target.value))}
+                  placeholder="R$ 850.000"
+                  className="crm-field disabled:opacity-50"
+                />
+              </div>
+              <div>
+                <label className="crm-field-label">Data</label>
+                <input
+                  disabled={!selectedVisit}
+                  type="date"
+                  value={saleDate}
+                  onChange={(e) => setSaleDate(e.target.value)}
+                  className="crm-field disabled:opacity-50"
+                />
+              </div>
+            </div>
+            <div className="rounded-xl bg-violet-50 dark:bg-violet-950/20 p-3 text-xs text-violet-700">
+              Comissão prevista:{" "}
+              <strong>
+                {formatBrlFull(
+                  (parseBrlNumber(saleValue) * COMISSAO_VENDA_PADRAO_PCT) / 100,
+                )}
+              </strong>
+            </div>
+            <button
+              disabled={!selectedVisit}
+              onClick={createSale}
+              className="w-full min-h-[48px] rounded-xl bg-emerald-600 text-white text-xs font-black disabled:opacity-40"
+            >
+              Registrar venda pendente
+            </button>
           </div>
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 dark:text-neutral-500 uppercase tracking-widest ml-1">
-              Data do fecho / check-in
-            </label>
-            <input
-              type="date"
-              value={dataCheckin}
-              onChange={(e) => setDataCheckin(e.target.value)}
-              className="w-full mt-1 p-4 rounded-2xl bg-white dark:bg-neutral-800 dark:text-white border border-gray-200 dark:border-neutral-700 font-bold outline-none min-h-[48px]"
-            />
-          </div>
-        </div>
-        <p className="text-[11px] text-violet-800 dark:text-violet-200 bg-violet-50 dark:bg-violet-950/30 rounded-xl px-3 py-2 border border-violet-200/60 dark:border-violet-800/50">
-          Comissão estimada ({COMISSAO_VENDA_PADRAO_PCT}% sobre o valor acima):{' '}
-          <strong>{formatBrlFull(previewComissaoForm)}</strong>
-        </p>
-        <p className="text-[11px] text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/40 rounded-xl p-3 border border-amber-200/60">
-          Esta venda fica <strong>pendente</strong> até tocar em <strong>Confirmar no VGV</strong> na lista abaixo; ao
-          confirmar, o imóvel sai da vitrine.
-        </p>
-        <button
-          type="button"
-          onClick={salvarVenda}
-          className="w-full py-4 rounded-2xl bg-hz-green text-white font-black text-sm uppercase tracking-widest shadow-lg"
-        >
-          Registar venda (pendente)
-        </button>
-      </div>
-
-      <div className="space-y-3">
-        <h3 className="font-bold text-brand-dark dark:text-white">Vendas e confirmação no VGV</h3>
-        {vendas.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-neutral-400 py-6 text-center border border-dashed border-gray-200 dark:border-neutral-700 rounded-2xl">
-            Ainda não há vendas registadas.
-          </p>
-        ) : (
-          <ul className="space-y-3">
-            {[...vendas]
-              .sort((a, b) => b.dataCheckin.localeCompare(a.dataCheckin) || b.id - a.id)
-              .map((v) => {
-                const im = imovelDe(db, v.imovelId);
-                const confirmada = v.vendaConfirmada !== false;
+          <div className="space-y-3">
+            <div>
+              <h3 className="font-black text-lg">Fechamentos</h3>
+              <p className="text-xs text-gray-500">
+                Confirme para incluir no VGV e retirar o imóvel dos disponíveis.
+              </p>
+            </div>
+            {sortedSales.length === 0 ? (
+              <p className="crm-empty">Nenhuma venda registrada.</p>
+            ) : (
+              sortedSales.map((sale) => {
+                const property = propertyById(db, sale.imovelId);
+                const confirmed = sale.vendaConfirmada !== false;
                 return (
-                  <li
-                    key={v.id}
-                    className="bg-white dark:bg-neutral-900 rounded-2xl p-4 border border-gray-100 dark:border-neutral-800 flex flex-col sm:flex-row sm:items-center gap-3"
+                  <article
+                    key={sale.id}
+                    className="crm-panel flex flex-col sm:flex-row sm:items-center gap-4"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="font-black text-sm text-brand-dark dark:text-white truncate">
-                        {im ? tituloImovel(im) : `Imóvel #${v.imovelId}`}
+                      <div className="flex gap-2 flex-wrap">
+                        <strong>
+                          {property
+                            ? tituloImovel(property)
+                            : `Imóvel #${sale.imovelId}`}
+                        </strong>
+                        <span
+                          className={`rounded-lg px-2 py-1 text-[9px] font-black uppercase ${confirmed ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}
+                        >
+                          {confirmed ? "Confirmada" : "Pendente"}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {brDate(sale.dataCheckin)}
+                        {sale.comprador ? ` · ${sale.comprador}` : ""}
                       </p>
-                      <p className="text-[11px] text-gray-500 dark:text-neutral-400 mt-0.5">
-                        {v.dataCheckin}
-                        {v.comprador ? ` · ${v.comprador}` : ''}
+                      <p className="text-lg font-black text-emerald-600 mt-2">
+                        {formatBrlFull(sale.valorVenda)}
                       </p>
-                      <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300 mt-1">
-                        {formatBrlFull(v.valorVenda)}
-                        {confirmada ? (
-                          <span className="ml-2 text-emerald-600">· no VGV</span>
-                        ) : (
-                          <span className="ml-2 text-amber-600">· pendente</span>
-                        )}
-                      </p>
-                      <p className="text-[11px] font-semibold text-violet-700 dark:text-violet-300 mt-1">
-                        Comissão {COMISSAO_VENDA_PADRAO_PCT}%: {formatBrlFull(valorComissaoVenda(v))}
+                      <p className="text-xs font-bold text-violet-600">
+                        Comissão: {formatBrlFull(valorComissaoVenda(sale))}
                       </p>
                     </div>
-                    <div className="flex flex-wrap gap-2 shrink-0">
-                      {!confirmada ? (
+                    <div className="flex gap-2">
+                      {!confirmed ? (
                         <button
-                          type="button"
-                          onClick={() => confirmarVendaNoVgv(v.id)}
-                          className="px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-black"
+                          onClick={() => confirmSale(sale.id)}
+                          className="business-button bg-emerald-600 text-white"
                         >
-                          Confirmar no VGV
+                          Confirmar VGV
                         </button>
                       ) : null}
                       <button
-                        type="button"
-                        onClick={() => {
-                          setAgendaModal(v);
-                          setAgendaHora('10:00');
-                        }}
-                        className="px-4 py-2.5 rounded-xl bg-brand-gold text-white text-xs font-black"
+                        onClick={() => deleteSale(sale.id)}
+                        className="business-button text-red-500"
                       >
-                        Na agenda
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removerVenda(v.id)}
-                        className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-neutral-600 text-xs font-bold text-red-500 dark:text-red-400"
-                      >
-                        Apagar
+                        Excluir
                       </button>
                     </div>
-                  </li>
+                  </article>
                 );
-              })}
-          </ul>
-        )}
-      </div>
-
-      <div className="bg-white dark:bg-neutral-900 rounded-[2rem] p-6 border border-gray-100 dark:border-neutral-800 space-y-4">
-        <h3 className="font-bold text-brand-dark dark:text-white">Visitas — como foi</h3>
-        <p className="text-[11px] text-gray-500 dark:text-neutral-400">
-          As visitas realizadas permanecem aqui para você salvar e reabrir quando quiser. Registre separadamente como
-          foi a visita e as condições da proposta. O fechamento pertence à venda/VGV.
-        </p>
-        {visitasFollowUp.length === 0 ? (
-          <p className="text-sm text-gray-500 py-4 text-center border border-dashed rounded-2xl">
-            Nenhuma visita nesta fase. Marque uma visita como <strong>Realizada</strong> na Agenda.
-          </p>
-        ) : (
-          <ul className="space-y-2 max-h-[min(520px,60vh)] overflow-y-auto pr-1">
-            {visitasFollowUp.map((v) => {
-              const aberta = visitaAbertaId === v.id;
-              return (
-                <li
-                  key={v.id}
-                  className="rounded-2xl border border-gray-100 dark:border-neutral-800 bg-gray-50/50 dark:bg-neutral-800/30 overflow-hidden"
-                >
-                  <button
-                    type="button"
-                    onClick={() => setVisitaAbertaId(aberta ? null : v.id)}
-                    className="w-full p-4 flex items-center justify-between gap-3 text-left"
-                    aria-expanded={aberta}
-                  >
-                    <span className="min-w-0">
-                      <span className="block font-bold text-sm text-brand-dark dark:text-white truncate">{v.cliente}</span>
-                      <span className="block text-[11px] text-gray-500 mt-0.5">
-                        {(v.data ?? '')} {v.hora} · {v.funilEstado === 'proposta' ? 'Proposta' : 'Realizada'}
-                      </span>
-                    </span>
-                    <span className="flex items-center gap-2 shrink-0">
-                      {(v.notasVisita ?? '').trim() ? <span className="text-emerald-600 text-xs">✓ notas</span> : null}
-                      {(v.propostaVisita ?? '').trim() ? <span className="text-brand-gold text-xs">✓ proposta</span> : null}
-                      <span className="text-gray-400 text-lg" aria-hidden>{aberta ? '−' : '+'}</span>
-                    </span>
-                  </button>
-                  {aberta ? (
-                    <div className="border-t border-gray-100 dark:border-neutral-700 p-4 space-y-2">
-                      <p className="text-xs text-gray-600 dark:text-neutral-300 bg-white/60 dark:bg-neutral-900/40 rounded-lg p-2.5 border border-gray-100 dark:border-neutral-700 leading-snug">
-                        <span className="font-bold text-emerald-700 dark:text-emerald-400">Resumo: </span>
-                        {resumoConversa(v)}
-                      </p>
-                      <label className="text-[9px] font-black uppercase text-gray-400">Como foi a visita</label>
-                      <textarea
-                        value={v.notasVisita ?? ''}
-                        onChange={(e) => patchVisita(v.id, { notasVisita: e.target.value || undefined })}
-                        placeholder="Ex.: cliente gostou da localização e pediu uma segunda visita…"
-                        rows={3}
-                        className="w-full p-3 rounded-xl bg-white dark:bg-neutral-800 dark:text-white border border-gray-200 dark:border-neutral-700 text-sm resize-y min-h-[72px]"
-                      />
-                      <label className="text-[9px] font-black uppercase text-gray-400">Proposta</label>
-                      <textarea
-                        value={v.propostaVisita ?? ''}
-                        onChange={(e) => patchVisita(v.id, { propostaVisita: e.target.value || undefined })}
-                        placeholder="Ex.: R$ 780.000, entrada de R$ 200.000 e saldo financiado…"
-                        rows={3}
-                        className="w-full p-3 rounded-xl bg-white dark:bg-neutral-800 dark:text-white border border-gray-200 dark:border-neutral-700 text-sm resize-y min-h-[72px]"
-                      />
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            patchVisita(v.id, { funilEstado: 'realizada' });
-                            setVisitaAbertaId(null);
-                          }}
-                          className="min-h-[44px] rounded-xl bg-emerald-600 text-white text-xs font-black"
-                        >
-                          Salvar realizada
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            patchVisita(v.id, { funilEstado: 'proposta' });
-                            setVisitaAbertaId(null);
-                          }}
-                          className="min-h-[44px] rounded-xl bg-brand-gold text-white text-xs font-black"
-                        >
-                          Marcar proposta
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            patchVisita(v.id, { funilEstado: 'cancelada' });
-                            setVisitaAbertaId(null);
-                          }}
-                          className="min-h-[44px] rounded-xl border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 text-xs font-black"
-                        >
-                          Cancelar visita
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-
-        </div>
-      ) : (
-        <div
-          id="panel-pos-comissao"
-          role="tabpanel"
-          aria-labelledby="tab-pos-comissao"
-          className="space-y-6"
-        >
-          <p className="text-[11px] text-gray-500 dark:text-neutral-400">
-            Comissão de <strong>{COMISSAO_VENDA_PADRAO_PCT}%</strong> calculada sobre o valor de venda (preço do imóvel),
-            independentemente do orçamento do lead no CRM.
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-white dark:bg-neutral-900 rounded-2xl p-4 border border-gray-100 dark:border-neutral-800 shadow-sm">
-              <p className="text-[9px] font-black uppercase text-gray-400 dark:text-neutral-500">Comissão confirmada</p>
-              <p className="text-2xl font-black text-violet-600 dark:text-violet-400">
-                {formatBrlFull(comissaoConfirmada)}
-              </p>
-            </div>
-            <div className="bg-white dark:bg-neutral-900 rounded-2xl p-4 border border-gray-100 dark:border-neutral-800 shadow-sm">
-              <p className="text-[9px] font-black uppercase text-gray-400 dark:text-neutral-500">Comissão pendente</p>
-              <p className="text-xl font-black text-amber-600 dark:text-amber-400">
-                {formatBrlFull(comissaoPendente)}
-              </p>
-            </div>
-          </div>
-          <div className="bg-white dark:bg-neutral-900 rounded-[2rem] p-6 border border-gray-100 dark:border-neutral-800 space-y-3">
-            <h3 className="font-bold text-brand-dark dark:text-white">Por registo de venda</h3>
-            {vendas.length === 0 ? (
-              <p className="text-sm text-gray-500 dark:text-neutral-400 py-6 text-center border border-dashed border-gray-200 dark:border-neutral-700 rounded-2xl">
-                Ainda não há vendas.
-              </p>
-            ) : (
-              <ul className="space-y-3 max-h-[min(480px,55vh)] overflow-y-auto pr-1">
-                {[...vendas]
-                  .sort((a, b) => b.dataCheckin.localeCompare(a.dataCheckin) || b.id - a.id)
-                  .map((v) => {
-                    const im = imovelDe(db, v.imovelId);
-                    const confirmada = v.vendaConfirmada !== false;
-                    return (
-                      <li
-                        key={v.id}
-                        className="rounded-2xl border border-violet-100 dark:border-violet-900/40 p-4 bg-violet-50/30 dark:bg-violet-950/10"
-                      >
-                        <p className="font-bold text-sm text-brand-dark dark:text-white">
-                          {im ? tituloImovel(im) : `Imóvel #${v.imovelId}`}
-                        </p>
-                        <p className="text-[11px] text-gray-500 dark:text-neutral-400 mt-0.5">
-                          {v.dataCheckin}
-                          {confirmada ? (
-                            <span className="text-emerald-600 dark:text-emerald-400"> · confirmada</span>
-                          ) : (
-                            <span className="text-amber-600"> · pendente confirmação VGV</span>
-                          )}
-                        </p>
-                        <p className="text-xs mt-2">
-                          <span className="text-gray-500 dark:text-neutral-400">Valor venda: </span>
-                          <span className="font-bold text-emerald-700 dark:text-emerald-300">
-                            {formatBrlFull(v.valorVenda)}
-                          </span>
-                        </p>
-                        <p className="text-sm font-black text-violet-700 dark:text-violet-300 mt-1">
-                          Comissão {COMISSAO_VENDA_PADRAO_PCT}%: {formatBrlFull(valorComissaoVenda(v))}
-                        </p>
-                      </li>
-                    );
-                  })}
-              </ul>
+              })
             )}
-          </div>
-        </div>
-      )}
-
-      {agendaModal ? (
-        <div
-          className="fixed inset-0 z-[60] flex items-end justify-center modal-overlay p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="modal-agenda-venda-titulo"
-        >
-          <div className="bg-white dark:bg-neutral-900 rounded-t-3xl max-w-md w-full p-6 shadow-2xl dark:text-white border border-gray-100 dark:border-neutral-800">
-            <h4 id="modal-agenda-venda-titulo" className="font-black text-lg mb-2">
-              Colocar na agenda
-            </h4>
-            <p className="text-xs text-gray-500 dark:text-neutral-400 mb-4">
-              Compromisso no dia do check-in com o imóvel e o valor no nome.
-            </p>
-            <label className="text-[10px] font-bold text-gray-400 uppercase">Hora</label>
-            <input
-              type="time"
-              value={agendaHora}
-              onChange={(e) => setAgendaHora(e.target.value)}
-              className="w-full mt-1 mb-4 p-3 rounded-xl bg-gray-50 dark:bg-neutral-800 border-0 font-bold"
-            />
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setAgendaModal(null)}
-                className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-neutral-600 text-xs font-bold"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onRegistrarNaAgenda(agendaModal, agendaHora);
-                  setAgendaModal(null);
-                }}
-                className="flex-1 py-3 rounded-xl bg-brand-dark text-brand-gold text-xs font-black"
-              >
-                Confirmar
-              </button>
-            </div>
           </div>
         </div>
       ) : null}
 
-      <div
-        className="bg-white dark:bg-neutral-900 rounded-[2rem] p-6 border border-gray-100 dark:border-neutral-800 space-y-3"
-        aria-labelledby="heading-roteiro-hoje"
-      >
-        <h3 id="heading-roteiro-hoje" className="font-bold text-brand-dark dark:text-white">
-          Roteiro de hoje
-        </h3>
-        <p className="text-xs text-gray-500 dark:text-neutral-400" role="status">
-          {visitasHoje.length} visita{visitasHoje.length === 1 ? '' : 's'} hoje.
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {rotaGoogle ? (
-            <a
-              href={rotaGoogle}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center min-h-[44px] px-4 py-3 rounded-xl bg-blue-600 text-white text-xs font-bold"
-            >
-              Google Maps
-            </a>
-          ) : (
-            <span className="text-xs text-gray-400 py-2">Sem rota para hoje (falta local nos cartões)</span>
-          )}
-          {rotaWaze ? (
-            <a
-              href={rotaWaze}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center min-h-[44px] px-4 py-3 rounded-xl bg-sky-500 text-white text-xs font-bold"
-            >
-              Waze
-            </a>
-          ) : null}
-          <button
-            type="button"
-            onClick={() =>
-              downloadIcsForVisitas(
-                [...visitasHoje].sort((a, b) => a.hora.localeCompare(b.hora)),
-                `visitas-${hoje}`
-              )
-            }
-            className="inline-flex items-center justify-center min-h-[44px] px-4 py-3 rounded-xl border border-gray-200 dark:border-neutral-600 text-xs font-bold dark:text-white"
-          >
-            Descarregar .ics (hoje)
-          </button>
+      {tab === "comissoes" ? (
+        <div className="space-y-4">
+          <div className="grid sm:grid-cols-3 gap-3">
+            <div className="crm-panel">
+              <span className="crm-metric-label">Confirmada</span>
+              <strong className="business-value text-violet-600">
+                {formatBrlFull(commission)}
+              </strong>
+            </div>
+            <div className="crm-panel">
+              <span className="crm-metric-label">Pendente</span>
+              <strong className="business-value text-amber-600">
+                {formatBrlFull(pendingCommission)}
+              </strong>
+            </div>
+            <div className="crm-panel">
+              <span className="crm-metric-label">Taxa aplicada</span>
+              <strong className="business-value">
+                {COMISSAO_VENDA_PADRAO_PCT}%
+              </strong>
+            </div>
+          </div>
+          <div className="crm-panel overflow-x-auto">
+            <table className="w-full min-w-[620px] text-xs">
+              <thead>
+                <tr className="border-b text-left text-[10px] uppercase text-gray-500">
+                  <th className="py-3">Data</th>
+                  <th>Comprador / imóvel</th>
+                  <th className="text-right">Venda</th>
+                  <th className="text-right">Comissão</th>
+                  <th className="text-right">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedSales.map((sale) => (
+                  <tr
+                    key={sale.id}
+                    className="border-b border-gray-100 dark:border-neutral-800"
+                  >
+                    <td className="py-3">{brDate(sale.dataCheckin)}</td>
+                    <td className="font-bold">
+                      {sale.comprador ||
+                        propertyById(db, sale.imovelId)?.endereco ||
+                        `Imóvel #${sale.imovelId}`}
+                    </td>
+                    <td className="text-right font-bold">
+                      {formatBrlFull(sale.valorVenda)}
+                    </td>
+                    <td className="text-right font-black text-violet-600">
+                      {formatBrlFull(valorComissaoVenda(sale))}
+                    </td>
+                    <td
+                      className={`text-right font-bold ${sale.vendaConfirmada === false ? "text-amber-600" : "text-emerald-600"}`}
+                    >
+                      {sale.vendaConfirmada === false
+                        ? "Pendente"
+                        : "Confirmada"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {sortedSales.length === 0 ? (
+              <p className="crm-empty mt-4">Nenhuma comissão calculada.</p>
+            ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
     </section>
   );
 }
